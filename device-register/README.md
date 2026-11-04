@@ -127,6 +127,51 @@ app.
 The viewer and editor exports leave out email addresses and network IDs on
 purpose; only the admin export includes them.
 
+## Running it with Docker
+
+Everything above, in three commands. Still set `.env` first — the container
+reads the same file.
+
+```bash
+cp .env.example .env
+```
+
+Build the CSVs on the host, since the import needs Python and `openpyxl` and
+the image does not carry them:
+
+```bash
+python3 scripts/build-data.py /path/to/workbook.xlsx data
+```
+
+```bash
+docker compose run --rm app npm run import
+```
+
+```bash
+docker compose up -d
+```
+
+It listens on `127.0.0.1:3000` — reachable only through a reverse proxy, not
+from the network. To expose it directly on a trusted network instead, change
+the port mapping in `compose.yaml` to `"3000:3000"`.
+
+`register.db` lives in the `register-data` volume, so it survives rebuilds and
+`docker compose down`. It is the only copy of every correction:
+
+```bash
+docker run --rm -v device-register_register-data:/data -v "$PWD":/backup busybox \
+  cp /data/register.db /backup/register-backup.db
+```
+
+To take a newer workbook: rebuild the CSVs on the host, then
+`docker compose run --rm app npm run import` again. Corrections are kept.
+
+The image carries no staff data and no secrets — `data/`, `*.db` and `.env` are
+all in `.dockerignore`. The CSVs are bind-mounted read-only at import time, the
+database lives in the volume, and the environment comes from `.env` at run
+time. The container runs as the unprivileged `node` user, and
+`GET /healthz` answers Docker's health check without touching the database.
+
 ## Deploying
 
 Put it behind HTTPS and set `SECURE_COOKIES=1`, so session cookies are only
@@ -146,6 +191,8 @@ src/db.mjs              schema, queries, the audited update
 src/auth.mjs            signed session cookies, admin password, invite links
 src/server.mjs          HTTP routes
 public/                 the page: index.html, app.js, styles.css
+Dockerfile              two-stage build, runs as the node user
+compose.yaml            the app, a volume for the database, data/ read-only
 ```
 
 ## What it deliberately does not do

@@ -52,6 +52,9 @@ app.get('/i/:token', (req, res) => {
 
 app.get('/api/session', (req, res) => res.json(req.session || { role: null }));
 
+/* For container and load-balancer health checks: no session, no database. */
+app.get('/healthz', (req, res) => res.type('text/plain').send('ok'));
+
 /* ---------- the register ---------- */
 
 app.get('/api/holders', requireRole('admin', 'editor', 'viewer'), (req, res) => {
