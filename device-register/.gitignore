@@ -1,0 +1,11 @@
+node_modules/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+
+# Staff data never goes into git: these hold names, job titles, email
+# addresses and device serial numbers. Rebuild them from the workbook with
+# scripts/build-data.py on the machine that runs the app.
+data/*.csv

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Device register</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400&display=swap">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<div class="wrap" id="gate" hidden>
+  <div class="gate">
+    <h1>Device register</h1>
+    <p class="lede">Who holds which company laptop or iPad. Open the link your IT team sent you, or sign in below if you are IT.</p>
+    <form id="login">
+      <label class="field"><span>Admin password</span>
+        <input class="txt" id="password" type="password" autocomplete="current-password" required>
+      </label>
+      <button class="btn" type="submit">Sign in</button>
+    </form>
+    <p class="saveline" id="gate-msg" role="status" aria-live="polite"></p>
+  </div>
+</div>
+
+<div class="wrap" id="app" hidden>
+  <header class="head">
+    <div class="head-row">
+      <h1>Device register</h1>
+      <div class="actions">
+        <span class="whoami" id="whoami"></span>
+        <button type="button" class="btn btn-quiet btn-small" id="export">Export CSV</button>
+        <button type="button" class="btn btn-quiet btn-small" id="logout">Sign out</button>
+      </div>
+    </div>
+    <p class="lede">Everyone Asset Central Inventory names on an active laptop or iPad. Set a type or tag someone resigned and it saves for everyone at once.</p>
+    <p class="saveline" id="saveline" role="status" aria-live="polite"></p>
+  </header>
+
+  <section class="tiles" aria-label="Totals">
+    <div class="tile"><span class="k">People holding a device</span><span class="v" id="t-people">—</span><span class="s" id="t-people-s">&nbsp;</span></div>
+    <div class="tile"><span class="k">Laptops out</span><span class="v" id="t-lap">—</span><span class="s" id="t-lap-s">&nbsp;</span></div>
+    <div class="tile"><span class="k">iPads out</span><span class="v" id="t-ipd">—</span><span class="s" id="t-ipd-s">&nbsp;</span></div>
+    <div class="tile"><span class="k">Holding both</span><span class="v" id="t-both">—</span><span class="s">A laptop and an iPad</span></div>
+    <div class="tile tile-warn"><span class="k">Marked resigned</span><span class="v" id="t-res">—</span><span class="s" id="t-res-s">&nbsp;</span></div>
+  </section>
+
+  <section class="cols" aria-label="Breakdowns">
+    <div class="card">
+      <h2>What each group holds</h2>
+      <p class="muted">Bar width is the share of that group. Set a type below and these move.</p>
+      <ul class="legend">
+        <li><span class="key key-laptop"></span>Laptop only</li>
+        <li><span class="key key-ipad"></span>iPad only</li>
+        <li><span class="key key-both"></span>Both</li>
+      </ul>
+      <div class="bars" id="mix"></div>
+    </div>
+    <div class="card">
+      <h2>The fleet in people's hands</h2>
+      <p class="muted">Every active laptop and iPad, counted by model.</p>
+      <div class="fleet" id="fleet"></div>
+    </div>
+  </section>
+
+  <section class="card" aria-label="Holders">
+    <h2>Every holder and what they hold</h2>
+    <p class="muted">Search by name, position, department, model, serial or note. Click a heading to sort.</p>
+    <div class="controls">
+      <label class="field"><span>Search</span>
+        <input class="txt search" id="q" type="search" placeholder="Name, serial, model…" aria-label="Search holders">
+      </label>
+      <div class="field"><span>Type</span>
+        <div class="chips" role="group" aria-label="Filter by type">
+          <button type="button" class="chip" data-f="type" data-v="" aria-pressed="true">All</button>
+          <button type="button" class="chip" data-f="type" data-v="Sales" aria-pressed="false">Sales</button>
+          <button type="button" class="chip" data-f="type" data-v="HO" aria-pressed="false">HO</button>
+          <button type="button" class="chip" data-f="type" data-v="Unknown" aria-pressed="false">No type</button>
+        </div>
+      </div>
+      <div class="field"><span>Device</span>
+        <div class="chips" role="group" aria-label="Filter by device">
+          <button type="button" class="chip" data-f="dev" data-v="" aria-pressed="true">All</button>
+          <button type="button" class="chip" data-f="dev" data-v="Laptop only" aria-pressed="false">Laptop</button>
+          <button type="button" class="chip" data-f="dev" data-v="iPad only" aria-pressed="false">iPad</button>
+          <button type="button" class="chip" data-f="dev" data-v="Both" aria-pressed="false">Both</button>
+        </div>
+      </div>
+      <div class="field"><span>Status</span>
+        <div class="chips" role="group" aria-label="Filter by status">
+          <button type="button" class="chip" data-f="res" data-v="" aria-pressed="true">All</button>
+          <button type="button" class="chip" data-f="res" data-v="y" aria-pressed="false">Resigned</button>
+        </div>
+      </div>
+    </div>
+    <p class="count" id="count">&nbsp;</p>
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th aria-sort="ascending"><button type="button" data-c="name">Holder</button></th>
+          <th><button type="button" data-c="type">Type</button></th>
+          <th><button type="button" data-c="resigned">Resigned</button></th>
+          <th><button type="button" data-c="status">Device</button></th>
+          <th class="c-units"><button type="button" data-c="n">Units</button></th>
+          <th class="c-pos"><button type="button" data-c="position">Position</button></th>
+          <th class="c-dept"><button type="button" data-c="department">Department</button></th>
+          <th class="c-lap"><button type="button" data-c="lap">Laptop serial</button></th>
+          <th class="c-ipd"><button type="button" data-c="ipd">iPad serial</button></th>
+          <th class="c-rem"><button type="button" data-c="rem">Remark</button></th>
+          <th class="c-note"><button type="button" data-c="note">Note</button></th>
+        </tr></thead>
+        <tbody id="rows"><tr><td colspan="11" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card admin" id="admin" aria-label="Sharing and history" hidden>
+    <h2>Links you have given out</h2>
+    <p class="muted">An editor link lets whoever opens it make corrections. A viewer link lets them look only. Neither needs an account.</p>
+    <div class="invite-row">
+      <label class="field"><span>Who is it for</span>
+        <input class="txt" id="invite-label" type="text" placeholder="Cebu branch admin" maxlength="80">
+      </label>
+      <label class="field"><span>What they may do</span>
+        <select class="txt" id="invite-role">
+          <option value="editor">Make corrections</option>
+          <option value="viewer">Look only</option>
+        </select>
+      </label>
+      <button type="button" class="btn" id="invite-make">Create link</button>
+    </div>
+    <div class="links" id="links"></div>
+
+    <h2>Recent changes</h2>
+    <div class="log" id="log"></div>
+  </section>
+
+  <section class="card" aria-label="How this works">
+    <h2>How this works</h2>
+    <dl class="defs">
+      <div><dt>The only device source</dt><dd>The Asset Central Inventory tab of the workbook. A person is here only if it names them on a laptop, iMac or iPad marked Active/Assigned.</dd></div>
+      <div><dt>Sales and HO</dt><dd>Sales is a job title containing "Financial Advisor". HO is any other job title found. Both are first guessed by matching the name against the monitoring sheet.</dd></div>
+      <div><dt>No type</dt><dd>No job title was found for that name. Set one here and it sticks through every later import.</dd></div>
+      <div><dt>Resigned</dt><dd>A tag this register keeps. The workbook does not record it.</dd></div>
+      <div><dt>Re-importing</dt><dd>Running the import again refreshes names, devices and departments from the workbook and leaves every correction made here alone.</dd></div>
+      <div><dt>Not used</dt><dd>The Asset Central Inventory (2) tab, whose assignee names were sorted apart from the serials. Assets at any status other than Active/Assigned are left out too.</dd></div>
+    </dl>
+  </section>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

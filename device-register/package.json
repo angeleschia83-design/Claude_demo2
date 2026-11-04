@@ -1,0 +1,17 @@
+{
+  "name": "device-register",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared register of who holds which company laptop or iPad.",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "import": "node scripts/import.mjs",
+    "start": "node src/server.mjs",
+    "dev": "node --watch src/server.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "11.5.0",
+    "express": "4.21.1"
+  }
+}
