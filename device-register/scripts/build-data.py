@@ -11,7 +11,14 @@ so they no longer line up with the hardware.
 "MONITORING_EMPLOYEES" is used only to look a job title up by name, which is
 what decides Sales vs HO. A holder whose name is not found there is Unknown.
 
-Usage:  python3 scripts/build-data.py <workbook.xlsx> [out_dir]
+Sales vs HO comes from HR's own Unit column when an employee list is given;
+otherwise it falls back to reading the job title off MONITORING_EMPLOYEES.
+A holder absent from the employee list is recorded as `not on list`, which is
+the evidence for tagging them resigned in the app — the script never tags
+anyone itself, because absence from an HR export is not proof of departure.
+
+Usage:
+  python3 scripts/build-data.py <asset-workbook.xlsx> [out_dir] [employee-list.xlsx]
 """
 import collections
 import csv
@@ -38,8 +45,22 @@ def clean(value):
     return "" if text.lower() in NULLS else text
 
 
+def demojibake(text):
+    """The HR export is UTF-8 read as latin-1 in places, so "Bañares" arrives
+    as "BaÃ±ares". Repair that before folding, or the two spellings of one
+    person never meet and they look like a leaver."""
+    text = str(text or "")
+    if "Ã" in text or "Â" in text:
+        try:
+            return text.encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+    return text
+
+
 def ascii_fold(text):
-    return unicodedata.normalize("NFKD", str(text or "")).encode("ascii", "ignore").decode()
+    text = demojibake(text).replace("\ufffd", "")
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
 
 
 def norm(text):
@@ -96,6 +117,30 @@ def read_employees(book):
     return out
 
 
+def read_employee_list(path):
+    """HR's current-staff export. Everyone in it is active; absence is what
+    carries meaning. Its Unit column ("Sales" / "Support") is HR's own answer
+    to the question the job-title rule only guesses at."""
+    sheet = openpyxl.load_workbook(path, data_only=True, read_only=True).worksheets[0]
+    head = [clean(c) for c in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))]
+    index = {name: head.index(name) for name in
+             ("Last Name", "First Name", "Job Position", "Department", "Unit") if name in head}
+    missing = {"Last Name", "First Name", "Unit"} - set(index)
+    if missing:
+        raise SystemExit(f"{path} has no {', '.join(sorted(missing))} column")
+    out = []
+    for row in sheet.iter_rows(min_row=2, values_only=True):
+        if not any(cell not in (None, "") for cell in row):
+            continue
+        out.append({
+            "last": clean(row[index["Last Name"]]), "given": clean(row[index["First Name"]]),
+            "position": clean(row[index.get("Job Position", 0)]) if "Job Position" in index else "",
+            "department": clean(row[index.get("Department", 0)]) if "Department" in index else "",
+            "unit": clean(row[index["Unit"]]),
+        })
+    return out
+
+
 def make_lookup(employees):
     """Resolve an inventory name to an employee, in three widening tiers.
 
@@ -113,6 +158,11 @@ def make_lookup(employees):
         if len(exact) == 1:
             return exact[0], "exact name"
 
+        # The inventory sometimes carries the two halves the wrong way round.
+        swapped = by_full.get((norm(given), norm(last)), [])
+        if len(swapped) == 1:
+            return swapped[0], "name halves swapped"
+
         candidates = by_last.get(norm(last), [])
         first = tokens(given)[:1]
         same_first = [p for p in candidates if first and tokens(p["given"])[:1] == first]
@@ -125,15 +175,32 @@ def make_lookup(employees):
         )
         if scored and scored[0][0] >= 0.82 and (len(scored) == 1 or scored[0][0] - scored[1][0] > 0.1):
             return scored[0][1], "spelling"
+
+        # Nobody shares the surname, so compare whole names against everyone.
+        # Stricter, because this tier has every employee to be wrong about
+        # instead of a handful.
+        whole = norm(last) + norm(given)
+        scored = sorted(
+            ((difflib.SequenceMatcher(None, whole, norm(p["last"]) + norm(p["given"])).ratio(), p)
+             for p in employees),
+            key=lambda pair: -pair[0],
+        )
+        if scored and scored[0][0] >= 0.88 and (len(scored) == 1 or scored[0][0] - scored[1][0] > 0.06):
+            return scored[0][1], "whole name"
         return None, "not found"
 
     return lookup
 
 
-def build(workbook_path, out_dir):
+def build(workbook_path, out_dir, employee_list=None):
     book = openpyxl.load_workbook(workbook_path, data_only=True, read_only=True)
     devices = read_devices(book)
     lookup = make_lookup(read_employees(book))
+
+    # HR's own Sales/Support flag beats reading a job title, so prefer it when
+    # the employee list is supplied and keep the job title as the fallback for
+    # anyone it no longer lists.
+    hr_lookup = make_lookup(read_employee_list(employee_list)) if employee_list else None
 
     by_holder = collections.OrderedDict()
     for device in devices:
@@ -146,7 +213,13 @@ def build(workbook_path, out_dir):
         laptops = [d for d in kit if d["kind"] == "Laptop"]
         ipads = [d for d in kit if d["kind"] == "iPad"]
 
-        if employee is None:
+        hr, hr_source = hr_lookup(last, given) if hr_lookup else (None, "")
+        hr_status = "" if hr_lookup is None else ("active" if hr else "not on list")
+
+        if hr is not None:
+            employee_type = "Sales" if hr["unit"].lower() == "sales" else "HO"
+            source = f"HR unit, {hr_source}"
+        elif employee is None:
             employee_type = "Unknown"
         elif SALES_TITLE in employee["position"].lower():
             employee_type = "Sales"
@@ -178,6 +251,7 @@ def build(workbook_path, out_dir):
             "ipad_model": "; ".join(sorted({d["model"] for d in ipads})),
             "remarks": "; ".join(sorted({d["remarks"] for d in kit if d["remarks"]})),
             "label_source": source,
+            "hr_status": hr_status,
         })
 
     out = pathlib.Path(out_dir)
@@ -200,12 +274,21 @@ def build(workbook_path, out_dir):
     print(f"{len(people)} holders -> {out / 'people.csv'}")
     print(f"{len(devices)} devices -> {out / 'devices.csv'}")
     print("  " + ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())))
-    unresolved = sum(1 for p in people if p["label_source"] == "not found")
+    unresolved = sum(1 for p in people if p["employee_type"] == "Unknown")
     if unresolved:
         print(f"  {unresolved} holders have no job title and start as Unknown")
+    if employee_list:
+        absent = [p for p in people if p["hr_status"] == "not on list"]
+        print(f"  {len(absent)} holders are not on the employee list, holding "
+              f"{sum(p['devices_held'] for p in absent)} devices")
+        print("  Nobody is tagged resigned here: check that list before tagging in the app.")
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         sys.exit(__doc__)
-    build(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "data")
+    build(
+        sys.argv[1],
+        sys.argv[2] if len(sys.argv) > 2 else "data",
+        sys.argv[3] if len(sys.argv) > 3 else None,
+    )

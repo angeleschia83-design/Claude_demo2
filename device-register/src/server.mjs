@@ -94,6 +94,7 @@ app.get('/api/export.csv', requireRole('admin', 'editor', 'viewer'), (req, res) 
     ['lap', 'Laptop serial'], ['lapM', 'Laptop model'],
     ['ipd', 'iPad serial'], ['ipdM', 'iPad model'],
     ['rem', 'Inventory remark'], ['note', 'Note'], ['src', 'Type source'],
+    ['hr_status', 'On the HR list'],
   ];
   const escape = (value) => {
     const text = value === true ? 'Yes' : value === false ? '' : String(value ?? '');

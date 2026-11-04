@@ -58,10 +58,12 @@ const devices = read('devices.csv');
 const upsertHolder = db.prepare(`
   INSERT INTO holders (id, name, base_type, device_status, position, department, unit, division,
                        ad_id, email, laptops_held, ipads_held, devices_held,
-                       laptop_serial, laptop_model, ipad_serial, ipad_model, remarks, label_source)
+                       laptop_serial, laptop_model, ipad_serial, ipad_model, remarks, label_source,
+                       hr_status)
   VALUES (@id, @name, @base_type, @device_status, @position, @department, @unit, @division,
           @ad_id, @email, @laptops_held, @ipads_held, @devices_held,
-          @laptop_serial, @laptop_model, @ipad_serial, @ipad_model, @remarks, @label_source)
+          @laptop_serial, @laptop_model, @ipad_serial, @ipad_model, @remarks, @label_source,
+          @hr_status)
   ON CONFLICT(id) DO UPDATE SET
     name = excluded.name, base_type = excluded.base_type,
     device_status = excluded.device_status, position = excluded.position,
@@ -71,7 +73,8 @@ const upsertHolder = db.prepare(`
     devices_held = excluded.devices_held,
     laptop_serial = excluded.laptop_serial, laptop_model = excluded.laptop_model,
     ipad_serial = excluded.ipad_serial, ipad_model = excluded.ipad_model,
-    remarks = excluded.remarks, label_source = excluded.label_source
+    remarks = excluded.remarks, label_source = excluded.label_source,
+    hr_status = excluded.hr_status
 `);
 
 const upsertDevice = db.prepare(`
@@ -97,6 +100,7 @@ const run = db.transaction(() => {
       laptop_serial: p.laptop_serial, laptop_model: p.laptop_model,
       ipad_serial: p.ipad_serial, ipad_model: p.ipad_model,
       remarks: p.remarks, label_source: p.label_source,
+      hr_status: p.hr_status ?? '',
     });
   }
   for (const d of devices) {

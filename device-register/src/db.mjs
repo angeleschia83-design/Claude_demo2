@@ -27,6 +27,7 @@ db.exec(`
     laptop_serial TEXT, laptop_model TEXT,
     ipad_serial   TEXT, ipad_model TEXT,
     remarks       TEXT, label_source TEXT,
+    hr_status     TEXT,
     updated_at    TEXT, updated_by TEXT
   );
 
@@ -72,7 +73,7 @@ const SELECT = `
          laptops_held AS nL, ipads_held AS nI, devices_held AS n,
          laptop_serial AS lap, laptop_model AS lapM,
          ipad_serial AS ipd, ipad_model AS ipdM,
-         remarks AS rem, label_source AS src,
+         remarks AS rem, label_source AS src, hr_status,
          updated_at, updated_by
     FROM holders`;
 

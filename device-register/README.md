@@ -18,16 +18,30 @@ people with no device than really have none.
   were sorted independently of the serial numbers, so they no longer line up
   with the hardware. Checked against the monitoring sheet, the main tab agrees
   on 342 of 342 serials and tab (2) on 114 of 265.
-- **MONITORING_EMPLOYEES supplies a job title only**, matched by name, which is
-  what decides Sales vs HO. Nobody enters the register through it.
+- **HR's employee list decides Sales vs HO**, through its own `Unit` column
+  (`Sales` / `Support`). It is optional; without it the job title on
+  MONITORING_EMPLOYEES is read instead, which is a guess by comparison.
+- **MONITORING_EMPLOYEES is the fallback for a job title**, matched by name.
+  Nobody enters the register through either sheet.
 
 ## Sales, HO, Unknown
 
 | Label | Meaning |
 |---|---|
-| `Sales` | The matched job title contains "Financial Advisor" — plain, senior or executive grade. |
-| `HO` | A job title was found and it is not a Financial Advisor grade. |
-| `Unknown` | No job title could be matched to that name. 78 holders start here. |
+| `Sales` | HR's employee list puts them in the `Sales` unit. Without that list: a job title containing "Financial Advisor". |
+| `HO` | HR puts them in `Support`. Without that list: any other job title found. |
+| `Unknown` | Neither sheet knows the name. 50 holders start here with the employee list, 78 without it. |
+
+### Who has left
+
+HR's export lists current staff only — every row reads Active, so absence is
+what carries meaning. A holder it does not list gets `hr_status: not on list`,
+and nothing more: **the script never tags anyone resigned.** Absence from an HR
+export is not proof of departure. Of the 59 absent at the time of writing, 8
+were on the monitoring sheet and have clearly left, while the other 51 are a
+mix of contractors, agency staff and shared machines — one of them is a
+Bloomberg terminal. Tag the real leavers in the app, where it is a human
+decision with a name against it.
 
 The guess is only a starting point. Anything set in the app overrides it and
 survives every later import.
@@ -41,6 +55,13 @@ being guessed at:
    Bernardo` on the monitoring sheet.
 3. **spelling** — `Siegfried Bactung` finds `Siegfred Bactung`, at 0.82
    similarity or better and clearly ahead of the runner-up.
+4. **whole name** — nobody shares the surname, so compare full names against
+   everyone, at 0.88 or better. This tier also catches names whose halves are
+   the wrong way round in the inventory.
+
+The HR export is UTF-8 read as latin-1 in places, so `Bañares` arrives as
+`BaÃ±ares`. That is repaired before any comparison; without it 27 people looked
+like leavers when they were simply misspelled.
 
 Each holder's `label_source` column records which tier answered, so an inferred
 match can always be checked.
@@ -67,8 +88,11 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 Turn the workbook into the two CSVs the importer reads:
 
 ```bash
-python3 scripts/build-data.py /path/to/2026_IT_Hardware_Asset_Management_Monitoring.xlsx data
+python3 scripts/build-data.py /path/to/asset-workbook.xlsx data /path/to/Employee_List.xlsx
 ```
+
+The employee list is optional; leave it off and Sales falls back to reading job
+titles.
 
 Load them into SQLite:
 
@@ -105,7 +129,7 @@ Give out viewer links freely and editor links deliberately.
 ## Refreshing from a new workbook
 
 ```bash
-python3 scripts/build-data.py /path/to/new-workbook.xlsx data
+python3 scripts/build-data.py /path/to/new-workbook.xlsx data /path/to/new-employee-list.xlsx
 npm run import
 ```
 
@@ -140,7 +164,7 @@ Build the CSVs on the host, since the import needs Python and `openpyxl` and
 the image does not carry them:
 
 ```bash
-python3 scripts/build-data.py /path/to/workbook.xlsx data
+python3 scripts/build-data.py /path/to/workbook.xlsx data /path/to/Employee_List.xlsx
 ```
 
 ```bash
