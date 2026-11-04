@@ -434,6 +434,7 @@
     });
   }
   $('export').addEventListener('click', () => { location.href = '/api/export.csv'; });
+  $('export-xlsx').addEventListener('click', () => { location.href = '/api/export.xlsx'; });
   $('logout').addEventListener('click', async () => {
     await api('/api/logout', { method: 'POST' }).catch(() => {});
     location.reload();

@@ -1,4 +1,5 @@
 import express from 'express';
+import XLSX from 'xlsx';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -84,9 +85,10 @@ app.patch('/api/holders/:id', requireRole('admin', 'editor'), (req, res) => {
   res.json(row);
 });
 
-app.get('/api/export.csv', requireRole('admin', 'editor', 'viewer'), (req, res) => {
-  const withContact = req.session.role === 'admin';
-  const columns = [
+/* Only the admin export carries contact details. */
+const exportColumns = (role) => {
+  const withContact = role === 'admin';
+  return [
     ['name', 'Holder'], ['type', 'Type'], ['resigned', 'Resigned'], ['status', 'Device'],
     ['n', 'Units'], ['nL', 'Laptops'], ['nI', 'iPads'], ['position', 'Position'],
     ['department', 'Department'], ['unit', 'Unit'],
@@ -96,13 +98,66 @@ app.get('/api/export.csv', requireRole('admin', 'editor', 'viewer'), (req, res) 
     ['rem', 'Inventory remark'], ['note', 'Note'], ['src', 'Type source'],
     ['hr_status', 'On the HR list'],
   ];
+};
+
+const exportValue = (row, key) => {
+  if (key === 'resigned') return row.resigned ? 'Yes' : '';
+  if (key === 'type') return row.type === 'Unknown' ? 'No type' : row.type;
+  return row[key] ?? '';
+};
+
+app.get('/api/export.csv', requireRole('admin', 'editor', 'viewer'), (req, res) => {
+  const columns = exportColumns(req.session.role);
   const escape = (value) => {
     const text = value === true ? 'Yes' : value === false ? '' : String(value ?? '');
     return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
-  const body = listHolders().map((row) => columns.map(([key]) => escape(row[key])).join(','));
+  const body = listHolders().map((row) => columns.map(([key]) => escape(exportValue(row, key))).join(','));
   res.type('text/csv').attachment('device-holders.csv');
   res.send([columns.map(([, head]) => head).join(','), ...body].join('\r\n'));
+});
+
+app.get('/api/export.xlsx', requireRole('admin', 'editor', 'viewer'), (req, res) => {
+  const columns = exportColumns(req.session.role);
+  const rows = listHolders();
+  const shape = (list) => list.map((row) =>
+    Object.fromEntries(columns.map(([key, head]) => [head, exportValue(row, key)])));
+
+  const book = XLSX.utils.book_new();
+  const widths = columns.map(([key]) =>
+    ({ wch: ['name', 'position', 'department'].includes(key) ? 28 : key === 'rem' ? 26 : 14 }));
+
+  const main = XLSX.utils.json_to_sheet(shape(rows));
+  main['!cols'] = widths;
+  main['!autofilter'] = { ref: main['!ref'] };
+  XLSX.utils.book_append_sheet(book, main, 'Holders');
+
+  const leavers = rows.filter((row) => row.resigned);
+  if (leavers.length) {
+    const sheet = XLSX.utils.json_to_sheet(shape(leavers));
+    sheet['!cols'] = widths;
+    XLSX.utils.book_append_sheet(book, sheet, 'To retrieve');
+  }
+
+  const counts = new Map();
+  for (const row of rows) {
+    const key = row.type === 'Unknown' ? 'No type' : row.type;
+    const entry = counts.get(key)
+      || { Type: key, People: 0, Laptops: 0, iPads: 0, Units: 0, Resigned: 0 };
+    entry.People += 1;
+    entry.Laptops += row.nL;
+    entry.iPads += row.nI;
+    entry.Units += row.n;
+    if (row.resigned) entry.Resigned += 1;
+    counts.set(key, entry);
+  }
+  const summary = XLSX.utils.json_to_sheet([...counts.values()]);
+  summary['!cols'] = [{ wch: 12 }, { wch: 9 }, { wch: 9 }, { wch: 8 }, { wch: 8 }, { wch: 10 }];
+  XLSX.utils.book_append_sheet(book, summary, 'Summary');
+
+  res.type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.attachment('device-holders.xlsx');
+  res.send(XLSX.write(book, { bookType: 'xlsx', type: 'buffer' }));
 });
 
 /* ---------- admin only ---------- */

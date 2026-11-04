@@ -119,9 +119,14 @@ A link can be withdrawn at any time, which kills it immediately. Changing
 
 | Role | Can do |
 |---|---|
-| admin | Everything: corrections, links, the change log, and an export that includes network IDs and email addresses. |
-| editor link | Corrections and an export without contact details. |
-| viewer link | Look and export without contact details. |
+| admin | Everything: corrections, links, the change log, and exports that include network IDs and email addresses. |
+| editor link | Corrections, and exports without contact details. |
+| viewer link | Look, and exports without contact details. |
+
+Both CSV and Excel are offered. The workbook has three sheets: **Holders**
+(every row, with an autofilter on the header), **To retrieve** (only the people
+tagged resigned, which is the list to chase hardware with) and **Summary**
+(people, laptops, iPads and resignations per type).
 
 Links are bearer tokens: anyone the URL is forwarded to gets the same access.
 Give out viewer links freely and editor links deliberately.
