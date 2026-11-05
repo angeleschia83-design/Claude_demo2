@@ -358,10 +358,15 @@
             copy.textContent = 'Copied';
             setTimeout(() => { copy.textContent = 'Copy link'; }, 1500);
           } catch (e) {
+            /* Browsers only allow copying on https or localhost. Reached by
+               its network address the register is plain http, so select the
+               link and tell the person to copy it themselves. */
             const range = document.createRange();
             range.selectNodeContents(url);
             getSelection().removeAllRanges();
             getSelection().addRange(range);
+            copy.textContent = 'Press Ctrl+C';
+            setTimeout(() => { copy.textContent = 'Copy link'; }, 4000);
           }
         });
         const revoke = document.createElement('button');
