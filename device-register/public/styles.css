@@ -137,6 +137,13 @@ tbody tr.is-saving td { opacity: .55; }
 .edited { font-size: 11px; color: var(--ok); }
 .empty { padding: 40px; text-align: center; color: var(--fg-mute); font-size: 13px; }
 
+td.ed { cursor: text; }
+td.ed:hover { box-shadow: inset 0 -1px 0 var(--fg-mute); }
+td.is-changed { box-shadow: inset 2px 0 0 var(--warn); }
+.edin { font: inherit; font-size: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--fg-mute); border-radius: 3px; padding: 1px 4px; width: 100%; min-width: 3rem; }
+.undo { font: inherit; font-size: 11px; line-height: 1; color: var(--fg-mute); background: none; border: 0; padding: 0 0 0 5px; cursor: pointer; }
+.undo:hover { color: var(--warn); }
+.pill-unknown { color: var(--unset); }
 .pill { display: inline-block; border: 1px solid currentColor; border-radius: 999px; padding: 0 7px; font-size: 12px; line-height: 1.6; white-space: nowrap; }
 .pill-laptop { color: var(--laptop); } .pill-ipad { color: var(--ipad); } .pill-both { color: var(--both); }
 .pill-sales { color: var(--sales); } .pill-ho { color: var(--ho); } .pill-unknown { color: var(--unset); }

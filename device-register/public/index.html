@@ -30,12 +30,13 @@
       <h1>Device register</h1>
       <div class="actions">
         <span class="whoami" id="whoami"></span>
+        <span class="whoami" id="version" title="Version of the register"></span>
         <button type="button" class="btn btn-quiet btn-small" id="export">Export CSV</button>
         <button type="button" class="btn btn-quiet btn-small" id="export-xlsx">Export Excel</button>
         <button type="button" class="btn btn-quiet btn-small" id="logout">Sign out</button>
       </div>
     </div>
-    <p class="lede">Everyone Asset Central Inventory names on an active laptop or iPad. Set a type or tag someone resigned and it saves for everyone at once.</p>
+    <p class="lede">Everyone Asset Central Inventory names on an active laptop or iPad. Click any cell to correct it — a name, a position, a serial — and it saves for everyone at once.</p>
     <p class="saveline" id="saveline" role="status" aria-live="polite"></p>
   </header>
 
@@ -67,7 +68,7 @@
 
   <section class="card" aria-label="Holders">
     <h2>Every holder and what they hold</h2>
-    <p class="muted">Search by name, position, department, model, serial or note. Click a heading to sort.</p>
+    <p class="muted">Click a cell to correct it, Enter to save, Escape to cancel. A corrected cell is marked, and ↺ puts the workbook’s value back. Click a heading to sort.</p>
     <div class="controls">
       <label class="field"><span>Search</span>
         <input class="txt search" id="q" type="search" placeholder="Name, serial, model…" aria-label="Search holders">
@@ -86,6 +87,7 @@
           <button type="button" class="chip" data-f="dev" data-v="Laptop only" aria-pressed="false">Laptop</button>
           <button type="button" class="chip" data-f="dev" data-v="iPad only" aria-pressed="false">iPad</button>
           <button type="button" class="chip" data-f="dev" data-v="Both" aria-pressed="false">Both</button>
+          <button type="button" class="chip" data-f="dev" data-v="No device" aria-pressed="false">None</button>
         </div>
       </div>
       <div class="field"><span>Status</span>
@@ -98,19 +100,7 @@
     <p class="count" id="count">&nbsp;</p>
     <div class="scroll">
       <table>
-        <thead><tr>
-          <th aria-sort="ascending"><button type="button" data-c="name">Holder</button></th>
-          <th><button type="button" data-c="type">Type</button></th>
-          <th><button type="button" data-c="resigned">Resigned</button></th>
-          <th><button type="button" data-c="status">Device</button></th>
-          <th class="c-units"><button type="button" data-c="n">Units</button></th>
-          <th class="c-pos"><button type="button" data-c="position">Position</button></th>
-          <th class="c-dept"><button type="button" data-c="department">Department</button></th>
-          <th class="c-lap"><button type="button" data-c="lap">Laptop serial</button></th>
-          <th class="c-ipd"><button type="button" data-c="ipd">iPad serial</button></th>
-          <th class="c-rem"><button type="button" data-c="rem">Remark</button></th>
-          <th class="c-note"><button type="button" data-c="note">Note</button></th>
-        </tr></thead>
+        <thead><tr id="head"></tr></thead>
         <tbody id="rows"><tr><td colspan="11" class="empty">Loading…</td></tr></tbody>
       </table>
     </div>

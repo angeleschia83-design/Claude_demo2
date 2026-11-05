@@ -99,29 +99,49 @@ for (const [column, definition] of [
   ['base_resigned', 'INTEGER NOT NULL DEFAULT 0'],
   ['last_working_day', 'TEXT'],
   ['hr_status', 'TEXT'],
+  ['overrides', 'TEXT'],
 ]) {
   const present = handle.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?')
     .get('holders', column);
   if (!present) handle.exec(`ALTER TABLE holders ADD COLUMN ${column} ${definition}`);
 }
 
-/* The effective type: the override when one is set, else the workbook's.
-   Resigned works the same way: HR's list is the default and anything set in
-   the app wins, so a correction is never undone by the next import. */
+/* Corrections made in the app live together in one JSON column, so adding
+   another editable column later needs no migration. Earlier versions kept
+   type, resigned and note in columns of their own; those fold in once. */
+const EDITABLE = new Map([
+  ['name', 'Holder'], ['type', 'Type'], ['resigned', 'Resigned'],
+  ['position', 'Position'], ['department', 'Department'], ['unit', 'Unit'],
+  ['lap', 'Laptop serial'], ['lapM', 'Laptop model'],
+  ['ipd', 'iPad serial'], ['ipdM', 'iPad model'],
+  ['rem', 'Inventory remark'], ['note', 'Note'],
+]);
+export const editableFields = [...EDITABLE.entries()].map(([key, label]) => ({ key, label }));
+
+{
+  const stale = handle.prepare(
+    `SELECT id, type, resigned, note FROM holders
+      WHERE overrides IS NULL AND (type IS NOT NULL OR resigned IS NOT NULL OR note IS NOT NULL)`,
+  ).all();
+  const write = handle.prepare('UPDATE holders SET overrides = ? WHERE id = ?');
+  for (const row of stale) {
+    const carried = {};
+    if (row.type !== null) carried.type = row.type;
+    if (row.resigned !== null) carried.resigned = Boolean(row.resigned);
+    if (row.note !== null) carried.note = row.note;
+    write.run(JSON.stringify(carried), row.id);
+  }
+}
+
+/* What the workbook and HR say, before any correction is laid over it. */
 const SELECT = `
-  SELECT id, name,
-         COALESCE(type, base_type) AS type,
-         base_type, (type IS NOT NULL) AS overridden,
-         COALESCE(resigned, base_resigned) AS resigned,
-         base_resigned, (resigned IS NOT NULL) AS resigned_overridden,
-         last_working_day, hr_status,
-         note, device_status AS status,
+  SELECT id, name, base_type AS type, base_resigned AS resigned,
+         last_working_day AS lwd, hr_status,
          position, department, unit, division, ad_id, email,
-         laptops_held AS nL, ipads_held AS nI, devices_held AS n,
          laptop_serial AS lap, laptop_model AS lapM,
          ipad_serial AS ipd, ipad_model AS ipdM,
-         remarks AS rem, label_source AS src, hr_status,
-         updated_at, updated_by
+         remarks AS rem, '' AS note, label_source AS src,
+         overrides, updated_at, updated_by
     FROM holders`;
 
 const allHolders = db.prepare(`${SELECT} ORDER BY name COLLATE NOCASE`);
@@ -130,13 +150,42 @@ const fleetRows = db.prepare(
   `SELECT model, kind, COUNT(*) AS n FROM devices GROUP BY model, kind ORDER BY n DESC`,
 );
 
-const toRow = (row) => ({
-  ...{ ...row },
-  resigned: Boolean(row.resigned),
-  base_resigned: Boolean(row.base_resigned),
-  resigned_overridden: Boolean(row.resigned_overridden),
-  overridden: Boolean(row.overridden),
-});
+const serials = (value) => String(value || '').split(';').map((x) => x.trim()).filter(Boolean);
+
+/* Counts and the device label follow from the serials, so correcting a serial
+   moves them with it rather than leaving the row contradicting itself. */
+const derive = (row) => {
+  const nL = serials(row.lap).length;
+  const nI = serials(row.ipd).length;
+  return {
+    ...row, nL, nI, n: nL + nI,
+    status: nL && nI ? 'Both' : nL ? 'Laptop only' : nI ? 'iPad only' : 'No device',
+  };
+};
+
+const readOverrides = (text) => {
+  if (!text) return {};
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (err) {
+    return {};
+  }
+};
+
+/* The base row with every correction laid over it. `base` keeps what the
+   workbook said, so the page can offer it back. */
+const toRow = (row) => {
+  const { overrides, ...rest } = { ...row };
+  const base = { ...rest, resigned: Boolean(rest.resigned) };
+  const carried = readOverrides(overrides);
+  const changed = Object.keys(carried).filter((key) => EDITABLE.has(key));
+  const merged = { ...base };
+  for (const key of changed) {
+    merged[key] = key === 'resigned' ? Boolean(carried[key]) : carried[key];
+  }
+  return derive({ ...merged, base: derive(base), changed });
+};
 
 export const listHolders = () => allHolders.all().map(toRow);
 export const getHolder = (id) => {
@@ -155,29 +204,38 @@ const writeAudit = db.prepare(
 export const updateHolder = db.transaction((id, patch, actor) => {
   const before = getHolder(id);
   if (!before) return null;
+
+  const carried = { ...readOverrides(
+    db.prepare('SELECT overrides FROM holders WHERE id = ?').get(id).overrides,
+  ) };
   const at = new Date().toISOString();
   const changes = [];
 
-  if (patch.type !== undefined && patch.type !== before.type) {
-    db.prepare('UPDATE holders SET type = ? WHERE id = ?')
-      .run(patch.type === before.base_type ? null : patch.type, id);
-    changes.push(['type', before.type, patch.type]);
-  }
-  if (patch.resigned !== undefined && Boolean(patch.resigned) !== before.resigned) {
-    /* Setting it back to what HR says clears the override rather than
-       recording a second opinion that happens to agree. */
-    const agrees = Boolean(patch.resigned) === before.base_resigned;
-    db.prepare('UPDATE holders SET resigned = ? WHERE id = ?')
-      .run(agrees ? null : (patch.resigned ? 1 : 0), id);
-    changes.push(['resigned', String(before.resigned), String(Boolean(patch.resigned))]);
-  }
-  if (patch.note !== undefined && (patch.note || '') !== (before.note || '')) {
-    db.prepare('UPDATE holders SET note = ? WHERE id = ?').run(patch.note || null, id);
-    changes.push(['note', before.note, patch.note]);
+  for (const [key, value] of Object.entries(patch)) {
+    if (!EDITABLE.has(key)) continue;
+    const next = key === 'resigned' ? (value === null ? null : Boolean(value)) : value;
+    const was = before[key];
+    /* null means "put the workbook's value back", and a value equal to the
+       workbook's is the same thing said another way. */
+    const sameAsBase = next !== null && (key === 'resigned'
+      ? Boolean(next) === Boolean(before.base.resigned)
+      : String(next ?? '') === String(before.base[key] ?? ''));
+
+    if (next === null || sameAsBase) {
+      if (!(key in carried)) continue;
+      delete carried[key];
+      changes.push([key, String(was ?? ''), String(before.base[key] ?? '')]);
+      continue;
+    }
+    if (String(next) === String(was ?? '')) continue;
+    carried[key] = next;
+    changes.push([key, String(was ?? ''), String(next)]);
   }
 
   if (!changes.length) return before;
-  db.prepare('UPDATE holders SET updated_at = ?, updated_by = ? WHERE id = ?').run(at, actor, id);
+
+  db.prepare('UPDATE holders SET overrides = ?, updated_at = ?, updated_by = ? WHERE id = ?')
+    .run(Object.keys(carried).length ? JSON.stringify(carried) : null, at, actor, id);
   for (const [field, oldValue, newValue] of changes) {
     writeAudit.run(at, actor, id, field, oldValue, newValue);
   }

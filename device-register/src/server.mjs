@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const VERSION = JSON.parse(fs.readFileSync(path.join(here, '..', 'package.json'), 'utf8')).version;
 
 /* A tiny .env reader, so the app needs no dependency just to start. */
 const envFile = path.join(here, '..', '.env');
@@ -18,7 +19,7 @@ if (fs.existsSync(envFile)) {
   }
 }
 
-const { db, listHolders, getHolder, listFleet, listDevices, updateHolder, listAudit } =
+const { db, listHolders, getHolder, listFleet, listDevices, updateHolder, listAudit, editableFields } =
   await import('./db.mjs');
 const { sessions, requireRole, makeSession, checkAdminPassword, cookieName, cookieOptions, newToken } =
   await import('./auth.mjs');
@@ -65,7 +66,12 @@ const networkAddresses = () => {
 };
 
 app.get('/api/session', (req, res) =>
-  res.json({ ...(req.session || { role: null }), addresses: networkAddresses() }));
+  res.json({
+    ...(req.session || { role: null }),
+    addresses: networkAddresses(),
+    version: VERSION,
+    fields: editableFields,
+  }));
 
 /* For container and load-balancer health checks: no session, no database. */
 app.get('/healthz', (req, res) => res.type('text/plain').send('ok'));
@@ -81,18 +87,28 @@ app.get('/api/holders/:id/devices', requireRole('admin', 'editor', 'viewer'), (r
 });
 
 const TYPES = ['Sales', 'HO', 'Unknown'];
+const EDITABLE = new Set(editableFields.map((field) => field.key));
 
 app.patch('/api/holders/:id', requireRole('admin', 'editor'), (req, res) => {
   const patch = {};
-  if ('type' in req.body) {
-    if (!TYPES.includes(req.body.type)) {
-      return res.status(400).json({ error: `Type must be one of ${TYPES.join(', ')}.` });
+  for (const [key, value] of Object.entries(req.body || {})) {
+    if (!EDITABLE.has(key)) continue;
+    /* null is how the page asks for the workbook's value back. */
+    if (value === null) { patch[key] = null; continue; }
+    if (key === 'type') {
+      if (!TYPES.includes(value)) {
+        return res.status(400).json({ error: `Type must be one of ${TYPES.join(', ')}.` });
+      }
+      patch[key] = value;
+    } else if (key === 'resigned') {
+      patch[key] = Boolean(value);
+    } else {
+      patch[key] = String(value ?? '').trim().slice(0, 500);
     }
-    patch.type = req.body.type;
   }
-  if ('resigned' in req.body) patch.resigned = Boolean(req.body.resigned);
-  if ('note' in req.body) patch.note = String(req.body.note ?? '').slice(0, 500);
-  if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to change.' });
+  if (!Object.keys(patch).length) {
+    return res.status(400).json({ error: 'Nothing here can be changed.' });
+  }
 
   const row = updateHolder(req.params.id, patch, req.session.label);
   if (!row) return res.status(404).json({ error: 'No such holder.' });
@@ -111,13 +127,15 @@ const exportColumns = (role) => {
     ['ipd', 'iPad serial'], ['ipdM', 'iPad model'],
     ['rem', 'Inventory remark'], ['note', 'Note'], ['src', 'Type source'],
     ['hr_status', 'On the HR list'],
-    ['last_working_day', 'Last working day'],
+    ['lwd', 'Last working day'],
+    ['changedList', 'Corrected here'],
   ];
 };
 
 const exportValue = (row, key) => {
   if (key === 'resigned') return row.resigned ? 'Yes' : '';
   if (key === 'type') return row.type === 'Unknown' ? 'No type' : row.type;
+  if (key === 'changedList') return (row.changed || []).join(', ');
   return row[key] ?? '';
 };
 

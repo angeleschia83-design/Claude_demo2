@@ -6,6 +6,26 @@
   const KINDS = ['Laptop only', 'iPad only', 'Both'];
   const DEV_CLASS = { 'Laptop only': 'laptop', 'iPad only': 'ipad', Both: 'both' };
   const TYPES = [['Sales', 'Sales'], ['HO', 'HO'], ['Unknown', 'No type']];
+
+  /* Every column, in the order the table shows them. Device and Units are
+     worked out from the serials rather than typed. */
+  const FIELDS = [
+    { key: 'name', label: 'Holder', kind: 'text', cls: 'who' },
+    { key: 'type', label: 'Type', kind: 'choice' },
+    { key: 'resigned', label: 'Resigned', kind: 'flag' },
+    { key: 'status', label: 'Device', kind: 'derived' },
+    { key: 'n', label: 'Units', kind: 'derived', cls: 'c-units num' },
+    { key: 'position', label: 'Position', kind: 'text', cls: 'c-pos' },
+    { key: 'department', label: 'Department', kind: 'text', cls: 'c-dept' },
+    { key: 'unit', label: 'Unit', kind: 'text', cls: 'c-unit' },
+    { key: 'lap', label: 'Laptop serial', kind: 'text', cls: 'c-lap mono' },
+    { key: 'lapM', label: 'Laptop model', kind: 'text', cls: 'c-lapm' },
+    { key: 'ipd', label: 'iPad serial', kind: 'text', cls: 'c-ipd mono' },
+    { key: 'ipdM', label: 'iPad model', kind: 'text', cls: 'c-ipdm' },
+    { key: 'rem', label: 'Remark', kind: 'text', cls: 'c-rem rem' },
+    { key: 'note', label: 'Note', kind: 'text', cls: 'c-note' },
+  ];
+  const NUMERIC = new Set(['n', 'nL', 'nI']);
   const TYPE_CLASS = { Sales: 'sales', HO: 'ho', Unknown: 'unknown' };
   const GROUPS = [['Sales', 'Sales'], ['HO', 'Head office'], ['Unknown', 'No type set']];
 
@@ -59,14 +79,13 @@
     if (view.res && !r.resigned) return false;
     const terms = view.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
     if (!terms.length) return true;
-    const hay = [r.name, r.position, r.department, r.unit, r.lap, r.ipd,
-      r.lapM, r.ipdM, r.rem, r.note, r.type, r.status].join(' ').toLowerCase();
+    const hay = FIELDS.map((f) => r[f.key]).concat([r.src, r.hr_status]).join(' ').toLowerCase();
     return terms.every((t) => hay.includes(t));
   };
 
   const sorted = (rows) => rows.slice().sort((a, b) => {
     let d;
-    if (view.col === 'n') d = a.n - b.n;
+    if (NUMERIC.has(view.col)) d = Number(a[view.col] || 0) - Number(b[view.col] || 0);
     else if (view.col === 'resigned') d = (a.resigned ? 1 : 0) - (b.resigned ? 1 : 0);
     else d = String(a[view.col] || '').localeCompare(String(b[view.col] || ''), undefined,
       { numeric: true, sensitivity: 'base' });
@@ -154,158 +173,159 @@
     }
   }
 
-  const cell = (tr, value, cls) => {
-    const td = document.createElement('td');
-    if (cls) td.className = cls;
-    td.textContent = value === 0 ? '0' : (value || '');
-    tr.appendChild(td);
-    return td;
+  const cellText = (r, key) => {
+    const value = r[key];
+    return value === 0 ? '0' : (value == null ? '' : String(value));
   };
 
   /* Sends one field, shows the row as busy, and puts the control back if the
-     server refuses so the page never shows a change that was not saved. */
-  async function patch(tr, id, body, revert) {
+     server refuses, so the page never shows a change that was not saved. */
+  async function patch(tr, r, body, revert) {
     tr.classList.add('is-saving');
     try {
-      const updated = await api(`/api/holders/${encodeURIComponent(id)}`, {
+      const updated = await api(`/api/holders/${encodeURIComponent(r.id)}`, {
         method: 'PATCH',
         body: JSON.stringify(body),
       });
-      const i = HOLDERS.findIndex((r) => r.id === id);
+      const i = HOLDERS.findIndex((row) => row.id === r.id);
       if (i >= 0) HOLDERS[i] = updated;
       say('Saved.', 'good');
       tiles();
       mix();
-      markRow(tr, updated);
+      tr.replaceWith(buildRow(updated));
     } catch (e) {
-      revert();
+      if (revert) revert();
       say(e.status === 403 ? 'Your link lets you look, not change.' : `Not saved: ${e.message}`, 'bad');
-    } finally {
       tr.classList.remove('is-saving');
     }
   }
 
-  function markRow(tr, r) {
-    tr.classList.toggle('is-resigned', r.resigned);
-    const who = tr.querySelector('.who');
-    const mark = who.querySelector('.edited');
-    if (r.overridden || r.resigned || r.note) {
-      if (!mark) {
-        const e = document.createElement('span');
-        e.className = 'edited';
-        e.textContent = ' edited';
-        who.appendChild(e);
+  /* A cell turns into an input on click and saves when it loses focus or
+     Enter is pressed. Escape puts it back. Rendering plain text the rest of
+     the time keeps hundreds of rows light. */
+  function editable(tr, r, field) {
+    const td = document.createElement('td');
+    td.className = ['ed', field.cls || ''].join(' ').trim();
+    const paint = () => {
+      td.replaceChildren(document.createTextNode(cellText(r, field.key)));
+      if ((r.changed || []).includes(field.key)) {
+        td.classList.add('is-changed');
+        td.title = `Workbook says: ${r.base[field.key] || '(empty)'}`;
+        const undo = document.createElement('button');
+        undo.type = 'button';
+        undo.className = 'undo';
+        undo.textContent = '\u21ba';
+        undo.title = 'Put back what the workbook says';
+        undo.setAttribute('aria-label', `Undo the change to ${field.label} for ${r.name}`);
+        undo.addEventListener('click', (event) => {
+          event.stopPropagation();
+          patch(tr, r, { [field.key]: null });
+        });
+        td.appendChild(undo);
       }
-    } else if (mark) mark.remove();
+    };
+    paint();
+    if (!canEdit()) { tr.appendChild(td); return td; }
+
+    td.tabIndex = 0;
+    const open = () => {
+      if (td.querySelector('input')) return;
+      const input = document.createElement('input');
+      input.className = 'edin';
+      input.value = cellText(r, field.key);
+      input.maxLength = 500;
+      input.setAttribute('aria-label', `${field.label} for ${r.name}`);
+      let done = false;
+      const close = (commit) => {
+        if (done) return;
+        done = true;
+        const next = input.value.trim();
+        const was = cellText(r, field.key);
+        paint();
+        if (commit && next !== was) patch(tr, r, { [field.key]: next });
+      };
+      input.addEventListener('blur', () => close(true));
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') { event.preventDefault(); close(true); td.focus(); }
+        if (event.key === 'Escape') { event.preventDefault(); close(false); td.focus(); }
+      });
+      td.replaceChildren(input);
+      input.focus();
+      input.select();
+    };
+    td.addEventListener('click', open);
+    td.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === 'F2') { event.preventDefault(); open(); }
+    });
+    tr.appendChild(td);
+    return td;
   }
 
   function buildRow(r) {
     const tr = document.createElement('tr');
     tr.dataset.id = r.id;
+    if (r.resigned) tr.classList.add('is-resigned');
 
-    cell(tr, r.name, 'who');
+    for (const field of FIELDS) {
+      if (field.kind === 'text') { editable(tr, r, field); continue; }
 
-    const typeTd = document.createElement('td');
-    if (canEdit()) {
-      const sel = document.createElement('select');
-      sel.className = 'sel';
-      sel.setAttribute('aria-label', `Type for ${r.name}`);
-      for (const [value, text] of TYPES) sel.appendChild(new Option(text, value));
-      sel.value = r.type;
-      sel.dataset.unset = r.type === 'Unknown' ? 'y' : 'n';
-      sel.addEventListener('change', () => {
-        const was = r.type;
-        const now = sel.value;
-        r.type = now;
-        sel.dataset.unset = now === 'Unknown' ? 'y' : 'n';
-        patch(tr, r.id, { type: now }, () => {
-          r.type = was;
-          sel.value = was;
-          sel.dataset.unset = was === 'Unknown' ? 'y' : 'n';
-        });
-      });
-      typeTd.appendChild(sel);
-    } else {
-      const pill = document.createElement('span');
-      pill.className = `pill pill-${TYPE_CLASS[r.type]}`;
-      pill.textContent = r.type === 'Unknown' ? 'No type' : r.type;
-      typeTd.appendChild(pill);
-    }
-    tr.appendChild(typeTd);
+      const td = document.createElement('td');
+      if (field.cls) td.className = field.cls;
 
-    const resTd = document.createElement('td');
-    if (canEdit()) {
-      const label = document.createElement('label');
-      label.className = 'tick';
-      const box = document.createElement('input');
-      box.type = 'checkbox';
-      box.checked = r.resigned;
-      box.setAttribute('aria-label', `Mark ${r.name} resigned`);
-      box.addEventListener('change', () => {
-        const was = r.resigned;
-        r.resigned = box.checked;
-        patch(tr, r.id, { resigned: box.checked }, () => { r.resigned = was; box.checked = was; });
-      });
-      const text = document.createElement('span');
-      text.textContent = 'Resigned';
-      label.append(box, text);
-      resTd.appendChild(label);
-      if (r.last_working_day) {
-        const when = document.createElement('div');
-        when.className = 'edited';
-        when.textContent = `left ${r.last_working_day}`;
-        resTd.appendChild(when);
+      if (field.kind === 'derived') {
+        if (field.key === 'status') {
+          const pill = document.createElement('span');
+          pill.className = `pill pill-${DEV_CLASS[r.status] || 'unknown'}`;
+          pill.textContent = r.status;
+          td.appendChild(pill);
+        } else {
+          td.textContent = cellText(r, field.key);
+        }
+      } else if (field.kind === 'choice') {
+        if (canEdit()) {
+          const sel = document.createElement('select');
+          sel.className = 'sel';
+          sel.setAttribute('aria-label', `${field.label} for ${r.name}`);
+          for (const [value, text] of TYPES) sel.appendChild(new Option(text, value));
+          sel.value = r.type;
+          sel.dataset.unset = r.type === 'Unknown' ? 'y' : 'n';
+          sel.addEventListener('change', () => patch(tr, r, { type: sel.value }));
+          td.appendChild(sel);
+        } else {
+          const pill = document.createElement('span');
+          pill.className = `pill pill-${TYPE_CLASS[r.type]}`;
+          pill.textContent = r.type === 'Unknown' ? 'No type' : r.type;
+          td.appendChild(pill);
+        }
+      } else if (field.kind === 'flag') {
+        if (canEdit()) {
+          const label = document.createElement('label');
+          label.className = 'tick';
+          const box = document.createElement('input');
+          box.type = 'checkbox';
+          box.checked = r.resigned;
+          box.setAttribute('aria-label', `Mark ${r.name} resigned`);
+          box.addEventListener('change', () => patch(tr, r, { resigned: box.checked }));
+          const text = document.createElement('span');
+          text.textContent = 'Resigned';
+          label.append(box, text);
+          td.appendChild(label);
+        } else if (r.resigned) {
+          const pill = document.createElement('span');
+          pill.className = 'pill';
+          pill.textContent = 'Resigned';
+          td.appendChild(pill);
+        }
+        if (r.lwd) {
+          const when = document.createElement('div');
+          when.className = 'edited';
+          when.textContent = `left ${r.lwd}`;
+          td.appendChild(when);
+        }
       }
-    } else if (r.resigned) {
-      const pill = document.createElement('span');
-      pill.className = 'pill';
-      pill.textContent = r.last_working_day ? `Resigned ${r.last_working_day}` : 'Resigned';
-      resTd.appendChild(pill);
+      if ((r.changed || []).includes(field.key)) td.classList.add('is-changed');
+      tr.appendChild(td);
     }
-    tr.appendChild(resTd);
-
-    const devTd = document.createElement('td');
-    const pill = document.createElement('span');
-    pill.className = `pill pill-${DEV_CLASS[r.status]}`;
-    pill.textContent = r.status;
-    devTd.appendChild(pill);
-    tr.appendChild(devTd);
-
-    cell(tr, r.n, 'c-units num');
-    cell(tr, r.position, 'c-pos');
-    cell(tr, r.department, 'c-dept');
-    cell(tr, r.lap, 'c-lap mono');
-    cell(tr, r.ipd, 'c-ipd mono');
-    cell(tr, r.rem, 'c-rem rem');
-
-    const noteTd = document.createElement('td');
-    noteTd.className = 'c-note';
-    if (canEdit()) {
-      const input = document.createElement('input');
-      input.className = 'txt note-in';
-      input.type = 'text';
-      input.value = r.note || '';
-      input.maxLength = 500;
-      input.placeholder = 'Add a note';
-      input.setAttribute('aria-label', `Note about ${r.name}`);
-      let last = r.note || '';
-      const send = () => {
-        const now = input.value.trim();
-        if (now === last) return;
-        const was = last;
-        last = now;
-        r.note = now;
-        patch(tr, r.id, { note: now }, () => { last = was; r.note = was; input.value = was; });
-      };
-      input.addEventListener('blur', send);
-      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
-      noteTd.appendChild(input);
-    } else {
-      noteTd.textContent = r.note || '';
-    }
-    tr.appendChild(noteTd);
-
-    markRow(tr, r);
     return tr;
   }
 
@@ -316,7 +336,7 @@
     if (!list.length) {
       const tr = document.createElement('tr');
       const td = document.createElement('td');
-      td.colSpan = 11;
+      td.colSpan = FIELDS.length;
       td.className = 'empty';
       td.textContent = 'Nobody matches these filters.';
       tr.appendChild(td);
@@ -329,9 +349,33 @@
     if (view.type) bits.push(view.type === 'Unknown' ? 'with no type' : view.type);
     if (view.dev) bits.push(view.dev.toLowerCase());
     if (view.res) bits.push('resigned');
-    if (view.q.trim()) bits.push(`matching “${view.q.trim()}”`);
+    if (view.q.trim()) bits.push(`matching \u201c${view.q.trim()}\u201d`);
     $('count').textContent = `Showing ${nf.format(list.length)} of ${nf.format(HOLDERS.length)} holders`
-      + (bits.length ? ` — ${bits.join(', ')}` : '') + '.';
+      + (bits.length ? ` \u2014 ${bits.join(', ')}` : '') + '.';
+  }
+
+  /* The header is built from FIELDS too, so a column cannot drift from the
+     data beneath it. */
+  function buildHead() {
+    const row = $('head');
+    row.replaceChildren();
+    for (const field of FIELDS) {
+      const th = document.createElement('th');
+      if (field.cls) th.className = field.cls.replace(/\b(who|num|mono|rem)\b/g, '').trim();
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = field.label;
+      button.addEventListener('click', () => {
+        view.dir = view.col === field.key ? -view.dir : 1;
+        view.col = field.key;
+        for (const other of row.querySelectorAll('th')) other.removeAttribute('aria-sort');
+        th.setAttribute('aria-sort', view.dir === 1 ? 'ascending' : 'descending');
+        table();
+      });
+      th.appendChild(button);
+      if (field.key === view.col) th.setAttribute('aria-sort', 'ascending');
+      row.appendChild(th);
+    }
   }
 
   const draw = () => { tiles(); mix(); fleet(); table(); };
@@ -456,16 +500,6 @@
     });
   }
   $('q').addEventListener('input', () => { view.q = $('q').value; table(); });
-  for (const btn of document.querySelectorAll('thead th button')) {
-    btn.addEventListener('click', () => {
-      const col = btn.dataset.c;
-      view.dir = view.col === col ? -view.dir : 1;
-      view.col = col;
-      for (const th of document.querySelectorAll('thead th')) th.removeAttribute('aria-sort');
-      btn.closest('th').setAttribute('aria-sort', view.dir === 1 ? 'ascending' : 'descending');
-      table();
-    });
-  }
   $('export').addEventListener('click', () => { location.href = '/api/export.csv'; });
   $('export-xlsx').addEventListener('click', () => { location.href = '/api/export.xlsx'; });
   $('logout').addEventListener('click', async () => {
@@ -496,6 +530,8 @@
     session = await api('/api/session').catch(() => ({ role: null }));
     if (!session.role) { $('gate').hidden = false; return; }
     $('app').hidden = false;
+    buildHead();
+    if (session.version) $('version').textContent = `v${session.version}`;
     $('whoami').textContent = session.role === 'admin'
       ? 'Signed in as IT admin'
       : `${session.label} — ${session.role === 'editor' ? 'you can make corrections' : 'you can look only'}`;

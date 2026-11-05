@@ -4,6 +4,10 @@ A shared record of who holds which company laptop or iPad, built from the
 IT Hardware Asset Management workbook. People outside the company can be given
 a link and make corrections without an account of any kind.
 
+Version history is in [CHANGELOG.md](CHANGELOG.md); the running version shows
+in the top right of the page. Upgrading means replacing the files and starting
+it again — the database migrates itself and corrections are carried over.
+
 It exists because the workbook disagrees with itself: `MONITORING_EMPLOYEES`
 lists only 342 of the 543 laptops and iPads that `Asset Central Inventory`
 marks as assigned, so anyone reading the monitoring sheet alone sees far more
