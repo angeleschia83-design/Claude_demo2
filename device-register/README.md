@@ -68,7 +68,13 @@ match can always be checked.
 
 ## Running it
 
-Requires Node 20 or newer, and Python 3 with `openpyxl` for the import step.
+Requires Node 22.5 or newer, and Python 3 with `openpyxl` for the import step.
+
+There is nothing to compile. Storage is Node's own built-in SQLite, so
+`npm install` pulls down plain JavaScript and no C++ toolchain is needed on
+the machine that runs this. An earlier version used a compiled SQLite driver,
+which has to match the exact Node version it was built for and failed on
+anything newer than its prebuilt binaries covered.
 
 ```bash
 npm install

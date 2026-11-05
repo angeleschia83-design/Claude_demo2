@@ -1,11 +1,40 @@
-import Database from 'better-sqlite3';
+import './quiet.mjs';
+import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 
+/* Node's own SQLite, so installing needs no C++ toolchain on the machine
+   that runs this. A compiled driver has to match the exact Node version it
+   is built for, which turned a two-minute setup into an afternoon. */
 const file = process.env.DATABASE_PATH || './register.db';
 
-export const db = new Database(path.resolve(file));
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+const handle = new DatabaseSync(path.resolve(file));
+handle.exec('PRAGMA journal_mode = WAL');
+handle.exec('PRAGMA foreign_keys = ON');
+
+/* node:sqlite has no transaction helper, so wrap one. Nested calls join the
+   outer transaction rather than trying to start a second. */
+let depth = 0;
+const transaction = (fn) => (...args) => {
+  if (depth > 0) return fn(...args);
+  depth += 1;
+  handle.exec('BEGIN');
+  try {
+    const out = fn(...args);
+    handle.exec('COMMIT');
+    return out;
+  } catch (err) {
+    handle.exec('ROLLBACK');
+    throw err;
+  } finally {
+    depth -= 1;
+  }
+};
+
+export const db = {
+  exec: (sql) => handle.exec(sql),
+  prepare: (sql) => handle.prepare(sql),
+  transaction,
+};
 
 /* `base_type` is what the workbook said. `type` is what a person set here and
    is the one that counts; NULL means nobody has overridden the workbook. An
@@ -84,7 +113,7 @@ const fleetRows = db.prepare(
 );
 
 const toRow = (row) => ({
-  ...row,
+  ...{ ...row },
   resigned: Boolean(row.resigned),
   overridden: Boolean(row.overridden),
 });
