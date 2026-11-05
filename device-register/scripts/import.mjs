@@ -59,11 +59,11 @@ const upsertHolder = db.prepare(`
   INSERT INTO holders (id, name, base_type, device_status, position, department, unit, division,
                        ad_id, email, laptops_held, ipads_held, devices_held,
                        laptop_serial, laptop_model, ipad_serial, ipad_model, remarks, label_source,
-                       hr_status)
+                       hr_status, base_resigned, last_working_day)
   VALUES (@id, @name, @base_type, @device_status, @position, @department, @unit, @division,
           @ad_id, @email, @laptops_held, @ipads_held, @devices_held,
           @laptop_serial, @laptop_model, @ipad_serial, @ipad_model, @remarks, @label_source,
-          @hr_status)
+          @hr_status, @base_resigned, @last_working_day)
   ON CONFLICT(id) DO UPDATE SET
     name = excluded.name, base_type = excluded.base_type,
     device_status = excluded.device_status, position = excluded.position,
@@ -74,7 +74,9 @@ const upsertHolder = db.prepare(`
     laptop_serial = excluded.laptop_serial, laptop_model = excluded.laptop_model,
     ipad_serial = excluded.ipad_serial, ipad_model = excluded.ipad_model,
     remarks = excluded.remarks, label_source = excluded.label_source,
-    hr_status = excluded.hr_status
+    hr_status = excluded.hr_status,
+    base_resigned = excluded.base_resigned,
+    last_working_day = excluded.last_working_day
 `);
 
 const upsertDevice = db.prepare(`
@@ -101,6 +103,8 @@ const run = db.transaction(() => {
       ipad_serial: p.ipad_serial, ipad_model: p.ipad_model,
       remarks: p.remarks, label_source: p.label_source,
       hr_status: p.hr_status ?? '',
+      base_resigned: p.resigned === 'yes' ? 1 : 0,
+      last_working_day: p.last_working_day ?? '',
     });
   }
   for (const d of devices) {
@@ -125,8 +129,12 @@ const run = db.transaction(() => {
 });
 
 const { goneHolders, goneDevices } = run();
-const kept = db.prepare('SELECT COUNT(*) AS n FROM holders WHERE type IS NOT NULL OR resigned = 1 OR note IS NOT NULL').get().n;
+const kept = db.prepare(
+  'SELECT COUNT(*) AS n FROM holders WHERE type IS NOT NULL OR resigned IS NOT NULL OR note IS NOT NULL',
+).get().n;
+const left = db.prepare('SELECT COUNT(*) AS n FROM holders WHERE base_resigned = 1').get().n;
 
 console.log(`${people.length} holders and ${devices.length} devices imported.`);
 if (goneHolders || goneDevices) console.log(`Removed ${goneHolders} holders and ${goneDevices} devices no longer in the workbook.`);
 console.log(`${kept} corrections kept.`);
+if (left) console.log(`${left} holders are on HR's resigned list.`);

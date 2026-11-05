@@ -250,10 +250,16 @@
       text.textContent = 'Resigned';
       label.append(box, text);
       resTd.appendChild(label);
+      if (r.last_working_day) {
+        const when = document.createElement('div');
+        when.className = 'edited';
+        when.textContent = `left ${r.last_working_day}`;
+        resTd.appendChild(when);
+      }
     } else if (r.resigned) {
       const pill = document.createElement('span');
       pill.className = 'pill';
-      pill.textContent = 'Resigned';
+      pill.textContent = r.last_working_day ? `Resigned ${r.last_working_day}` : 'Resigned';
       resTd.appendChild(pill);
     }
     tr.appendChild(resTd);

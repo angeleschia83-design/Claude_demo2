@@ -45,8 +45,10 @@ db.exec(`
     name          TEXT NOT NULL,
     base_type     TEXT NOT NULL,
     type          TEXT,
-    resigned      INTEGER NOT NULL DEFAULT 0,
+    base_resigned INTEGER NOT NULL DEFAULT 0,
+    resigned      INTEGER,
     note          TEXT,
+    last_working_day TEXT,
     device_status TEXT NOT NULL,
     position      TEXT, department TEXT, unit TEXT, division TEXT,
     ad_id         TEXT, email TEXT,
@@ -92,12 +94,28 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS audit_at ON audit(at DESC);
 `);
 
-/* The effective type: the override when one is set, else the workbook's. */
+/* Databases made before HR's resigned list existed are brought forward. */
+for (const [column, definition] of [
+  ['base_resigned', 'INTEGER NOT NULL DEFAULT 0'],
+  ['last_working_day', 'TEXT'],
+  ['hr_status', 'TEXT'],
+]) {
+  const present = handle.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?')
+    .get('holders', column);
+  if (!present) handle.exec(`ALTER TABLE holders ADD COLUMN ${column} ${definition}`);
+}
+
+/* The effective type: the override when one is set, else the workbook's.
+   Resigned works the same way: HR's list is the default and anything set in
+   the app wins, so a correction is never undone by the next import. */
 const SELECT = `
   SELECT id, name,
          COALESCE(type, base_type) AS type,
          base_type, (type IS NOT NULL) AS overridden,
-         resigned, note, device_status AS status,
+         COALESCE(resigned, base_resigned) AS resigned,
+         base_resigned, (resigned IS NOT NULL) AS resigned_overridden,
+         last_working_day, hr_status,
+         note, device_status AS status,
          position, department, unit, division, ad_id, email,
          laptops_held AS nL, ipads_held AS nI, devices_held AS n,
          laptop_serial AS lap, laptop_model AS lapM,
@@ -115,6 +133,8 @@ const fleetRows = db.prepare(
 const toRow = (row) => ({
   ...{ ...row },
   resigned: Boolean(row.resigned),
+  base_resigned: Boolean(row.base_resigned),
+  resigned_overridden: Boolean(row.resigned_overridden),
   overridden: Boolean(row.overridden),
 });
 
@@ -144,7 +164,11 @@ export const updateHolder = db.transaction((id, patch, actor) => {
     changes.push(['type', before.type, patch.type]);
   }
   if (patch.resigned !== undefined && Boolean(patch.resigned) !== before.resigned) {
-    db.prepare('UPDATE holders SET resigned = ? WHERE id = ?').run(patch.resigned ? 1 : 0, id);
+    /* Setting it back to what HR says clears the override rather than
+       recording a second opinion that happens to agree. */
+    const agrees = Boolean(patch.resigned) === before.base_resigned;
+    db.prepare('UPDATE holders SET resigned = ? WHERE id = ?')
+      .run(agrees ? null : (patch.resigned ? 1 : 0), id);
     changes.push(['resigned', String(before.resigned), String(Boolean(patch.resigned))]);
   }
   if (patch.note !== undefined && (patch.note || '') !== (before.note || '')) {

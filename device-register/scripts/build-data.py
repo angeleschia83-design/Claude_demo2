@@ -118,26 +118,46 @@ def read_employees(book):
 
 
 def read_employee_list(path):
-    """HR's current-staff export. Everyone in it is active; absence is what
-    carries meaning. Its Unit column ("Sales" / "Support") is HR's own answer
-    to the question the job-title rule only guesses at."""
-    sheet = openpyxl.load_workbook(path, data_only=True, read_only=True).worksheets[0]
-    head = [clean(c) for c in next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))]
-    index = {name: head.index(name) for name in
-             ("Last Name", "First Name", "Job Position", "Department", "Unit") if name in head}
-    missing = {"Last Name", "First Name", "Unit"} - set(index)
-    if missing:
-        raise SystemExit(f"{path} has no {', '.join(sorted(missing))} column")
+    """HR's staff export. Its Unit column is HR's own answer to the question
+    the job-title rule only guesses at.
+
+    A sheet named "Resigned" names people who have left, which is far better
+    than inferring departure from absence: absence can equally mean a
+    contractor, an agency seller or a shared machine. Where there is no such
+    sheet every row is read as active and nobody is marked as having left."""
+    book = openpyxl.load_workbook(path, data_only=True, read_only=True)
     out = []
-    for row in sheet.iter_rows(min_row=2, values_only=True):
-        if not any(cell not in (None, "") for cell in row):
+    for sheet in book.worksheets:
+        rows = sheet.iter_rows(values_only=True)
+        try:
+            head = [clean(cell) for cell in next(rows)]
+        except StopIteration:
             continue
-        out.append({
-            "last": clean(row[index["Last Name"]]), "given": clean(row[index["First Name"]]),
-            "position": clean(row[index.get("Job Position", 0)]) if "Job Position" in index else "",
-            "department": clean(row[index.get("Department", 0)]) if "Department" in index else "",
-            "unit": clean(row[index["Unit"]]),
-        })
+        if "Last Name" not in head or "First Name" not in head:
+            continue
+        index = {name: head.index(name) for name in head}
+        left = sheet.title.strip().lower().startswith("resign")
+        for row in rows:
+            if not any(cell not in (None, "") for cell in row):
+                continue
+            last = clean(row[index["Last Name"]])
+            given = clean(row[index["First Name"]])
+            if not last and not given:
+                continue
+            out.append({
+                "last": last, "given": given,
+                "position": clean(row[index["Job Position"]]) if "Job Position" in index else "",
+                "department": clean(row[index["Department"]]) if "Department" in index else "",
+                "unit": clean(row[index["Unit"]]) if "Unit" in index else "",
+                "resigned": left,
+                "last_working_day": (
+                    date_str(row[index["Last  Working Day"]]) if "Last  Working Day" in index
+                    else date_str(row[index["Last Working Day"]]) if "Last Working Day" in index
+                    else ""
+                ),
+            })
+    if not out:
+        raise SystemExit(f"{path} has no sheet with Last Name and First Name columns")
     return out
 
 
@@ -197,10 +217,16 @@ def build(workbook_path, out_dir, employee_list=None):
     devices = read_devices(book)
     lookup = make_lookup(read_employees(book))
 
-    # HR's own Sales/Support flag beats reading a job title, so prefer it when
-    # the employee list is supplied and keep the job title as the fallback for
-    # anyone it no longer lists.
-    hr_lookup = make_lookup(read_employee_list(employee_list)) if employee_list else None
+    # HR's own Sales/HO flag beats reading a job title, so prefer it when the
+    # employee list is supplied and keep the job title as the fallback for
+    # anyone it does not list at all.
+    hr_lookup = hr_left_lookup = None
+    if employee_list:
+        staff = read_employee_list(employee_list)
+        # The active roll is searched first, so somebody who left and came
+        # back reads as active rather than as the departure they returned from.
+        hr_lookup = make_lookup([p for p in staff if not p["resigned"]])
+        hr_left_lookup = make_lookup([p for p in staff if p["resigned"]])
 
     by_holder = collections.OrderedDict()
     for device in devices:
@@ -214,7 +240,10 @@ def build(workbook_path, out_dir, employee_list=None):
         ipads = [d for d in kit if d["kind"] == "iPad"]
 
         hr, hr_source = hr_lookup(last, given) if hr_lookup else (None, "")
-        hr_status = "" if hr_lookup is None else ("active" if hr else "not on list")
+        if hr is None and hr_left_lookup is not None:
+            hr, hr_source = hr_left_lookup(last, given)
+        hr_status = "" if hr_lookup is None else (
+            "resigned" if (hr and hr["resigned"]) else "active" if hr else "not on list")
 
         if hr is not None:
             employee_type = "Sales" if hr["unit"].lower() == "sales" else "HO"
@@ -252,6 +281,8 @@ def build(workbook_path, out_dir, employee_list=None):
             "remarks": "; ".join(sorted({d["remarks"] for d in kit if d["remarks"]})),
             "label_source": source,
             "hr_status": hr_status,
+            "resigned": "yes" if (hr and hr["resigned"]) else "",
+            "last_working_day": (hr or {}).get("last_working_day", "") if (hr and hr["resigned"]) else "",
         })
 
     out = pathlib.Path(out_dir)
@@ -278,10 +309,14 @@ def build(workbook_path, out_dir, employee_list=None):
     if unresolved:
         print(f"  {unresolved} holders have no job title and start as Unknown")
     if employee_list:
+        left = [p for p in people if p["hr_status"] == "resigned"]
         absent = [p for p in people if p["hr_status"] == "not on list"]
-        print(f"  {len(absent)} holders are not on the employee list, holding "
+        if left:
+            print(f"  {len(left)} holders are on HR's resigned list, holding "
+                  f"{sum(p['devices_held'] for p in left)} devices to retrieve")
+        print(f"  {len(absent)} holders are on neither HR sheet, holding "
               f"{sum(p['devices_held'] for p in absent)} devices")
-        print("  Nobody is tagged resigned here: check that list before tagging in the app.")
+        print("  Those are not tagged as having left: absence is not a resignation.")
 
 
 if __name__ == "__main__":

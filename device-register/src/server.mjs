@@ -111,6 +111,7 @@ const exportColumns = (role) => {
     ['ipd', 'iPad serial'], ['ipdM', 'iPad model'],
     ['rem', 'Inventory remark'], ['note', 'Note'], ['src', 'Type source'],
     ['hr_status', 'On the HR list'],
+    ['last_working_day', 'Last working day'],
   ];
 };
 

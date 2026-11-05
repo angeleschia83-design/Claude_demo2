@@ -34,14 +34,22 @@ people with no device than really have none.
 
 ### Who has left
 
-HR's export lists current staff only — every row reads Active, so absence is
-what carries meaning. A holder it does not list gets `hr_status: not on list`,
-and nothing more: **the script never tags anyone resigned.** Absence from an HR
-export is not proof of departure. Of the 59 absent at the time of writing, 8
-were on the monitoring sheet and have clearly left, while the other 51 are a
-mix of contractors, agency staff and shared machines — one of them is a
-Bloomberg terminal. Tag the real leavers in the app, where it is a human
-decision with a name against it.
+Where HR's export has a sheet named **Resigned**, that sheet is the answer:
+those holders come through tagged, with their last working day. The active
+sheet is searched first, so somebody who left and came back reads as active
+rather than as the departure they returned from.
+
+A holder on neither sheet gets `hr_status: not on list` and nothing more. The
+script never tags them, because absence from an HR export is not proof of
+departure — it equally describes a contractor, an agency seller or a shared
+machine. One such holder is a Bloomberg terminal.
+
+Anything ticked or unticked in the app overrides HR and survives every later
+import. Setting it back to agree with HR clears the override rather than
+recording a second opinion that happens to agree.
+
+Where the export has no Resigned sheet, every row reads as active and nobody
+is tagged.
 
 The guess is only a starting point. Anything set in the app overrides it and
 survives every later import.
