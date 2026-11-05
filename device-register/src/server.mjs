@@ -1,5 +1,6 @@
 import express from 'express';
 import XLSX from 'xlsx';
+import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -51,7 +52,20 @@ app.get('/i/:token', (req, res) => {
   res.redirect('/');
 });
 
-app.get('/api/session', (req, res) => res.json(req.session || { role: null }));
+/* The addresses other machines on the network can reach this one by. The
+   page builds invite links from these rather than from whatever is in the
+   admin's address bar, which is usually localhost and useless to anybody
+   else. */
+const networkAddresses = () => {
+  const port = Number(process.env.PORT) || 3000;
+  return Object.values(os.networkInterfaces())
+    .flat()
+    .filter((face) => face && face.family === 'IPv4' && !face.internal)
+    .map((face) => `http://${face.address}:${port}`);
+};
+
+app.get('/api/session', (req, res) =>
+  res.json({ ...(req.session || { role: null }), addresses: networkAddresses() }));
 
 /* For container and load-balancer health checks: no session, no database. */
 app.get('/healthz', (req, res) => res.type('text/plain').send('ok'));

@@ -16,6 +16,16 @@
 
   const canEdit = () => session.role === 'admin' || session.role === 'editor';
 
+  /* An invite link has to name an address a colleague's machine can reach.
+     The admin is usually browsing on localhost, which on their machine means
+     this computer and on anyone else's means their own, so prefer the
+     network address the server reports. */
+  const linkBase = () => {
+    const local = /^(localhost|127\.|\[::1\])/.test(location.hostname);
+    const [first] = session.addresses || [];
+    return local && first ? first : location.origin;
+  };
+
   async function api(path, options = {}) {
     const res = await fetch(path, {
       credentials: 'same-origin',
@@ -325,6 +335,18 @@
   async function loadAdmin() {
     if (session.role !== 'admin') return;
     $('admin').hidden = false;
+
+    const note = $('link-note');
+    const [address] = session.addresses || [];
+    if (address && linkBase() !== location.origin) {
+      note.textContent = `Links below use ${address}, which is how other machines on your network reach this one.`
+        + ' They must be on the same network, and this computer must stay on with the register running.';
+    } else if (!address) {
+      note.textContent = 'This computer has no network address right now, so links will only work on it.';
+    } else {
+      note.textContent = '';
+    }
+
     const [invites, log] = await Promise.all([api('/api/invites'), api('/api/audit')]);
 
     const links = $('links');
@@ -343,7 +365,7 @@
       title.textContent = `${invite.label} — ${invite.role === 'editor' ? 'can correct' : 'can look'}`
         + (invite.revoked ? ' — withdrawn' : '');
       const url = document.createElement('code');
-      url.textContent = `${location.origin}/i/${invite.token}`;
+      url.textContent = `${linkBase()}/i/${invite.token}`;
       left.append(title, url);
       const right = document.createElement('div');
       right.className = 'actions';
