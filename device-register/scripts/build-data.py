@@ -78,27 +78,34 @@ def date_str(value):
 
 
 def read_devices(book):
-    """Every laptop, iMac and iPad currently assigned to a named person."""
+    """Every asset with a serial number, not only the ones people hold.
+
+    The register itself is built from `held` rows; the rest are what the asset
+    summary needs, and leaving them out is what made the old spreadsheet
+    undercount. Nothing is filtered away here, so a new asset type or model
+    appears on its own rather than waiting for somebody to add a column."""
     sheet = book[INVENTORY]
     out = []
     for row in sheet.iter_rows(min_row=3, values_only=True):
         serial, asset_type, status, last = clean(row[9]), clean(row[6]), clean(row[17]), clean(row[18])
-        if not serial or not last or asset_type not in LAPTOP_TYPES | IPAD_TYPES:
+        if not serial:
             continue
-        if not status.startswith(ACTIVE):
-            continue
+        is_device = asset_type in LAPTOP_TYPES | IPAD_TYPES
         out.append({
             "serial": serial,
-            "kind": "Laptop" if asset_type in LAPTOP_TYPES else "iPad",
-            "model": clean(row[7]) or "Model not recorded",
+            "asset_type": asset_type,
+            "kind": "Laptop" if asset_type in LAPTOP_TYPES else ("iPad" if asset_type in IPAD_TYPES else "Other"),
+            "model": clean(row[7]),
             "specs": clean(row[8]),
             "host_name": clean(row[10]),
             "os": clean(row[11]),
+            "status": status,
             "last": last,
             "given": clean(row[19]),
             "assigned_on": date_str(row[20]),
             "remarks": clean(row[21]),
             "age_years": round(float(row[5]), 1) if isinstance(row[5], (int, float)) else "",
+            "held": "yes" if (is_device and last and status.startswith(ACTIVE)) else "",
         })
     return out
 
@@ -214,7 +221,8 @@ def make_lookup(employees):
 
 def build(workbook_path, out_dir, employee_list=None):
     book = openpyxl.load_workbook(workbook_path, data_only=True, read_only=True)
-    devices = read_devices(book)
+    assets = read_devices(book)
+    devices = [d for d in assets if d["held"] == "yes"]
     lookup = make_lookup(read_employees(book))
 
     # HR's own Sales/HO flag beats reading a job title, so prefer it when the
@@ -294,16 +302,18 @@ def build(workbook_path, out_dir, employee_list=None):
         writer.writeheader()
         writer.writerows(people)
 
-    device_cols = ["serial", "kind", "model", "holder_id", "holder", "assigned_on",
-                   "age_years", "os", "host_name", "specs", "remarks"]
+    device_cols = ["serial", "asset_type", "kind", "model", "status", "held",
+                   "holder_id", "holder", "assigned_on", "age_years",
+                   "os", "host_name", "specs", "remarks"]
     with (out / "devices.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=device_cols, extrasaction="ignore")
         writer.writeheader()
-        writer.writerows(devices)
+        writer.writerows(assets)
 
     counts = collections.Counter(p["employee_type"] for p in people)
     print(f"{len(people)} holders -> {out / 'people.csv'}")
-    print(f"{len(devices)} devices -> {out / 'devices.csv'}")
+    print(f"{len(assets)} assets -> {out / 'devices.csv'} "
+          f"({len(devices)} of them held by someone)")
     print("  " + ", ".join(f"{k}: {v}" for k, v in sorted(counts.items())))
     unresolved = sum(1 for p in people if p["employee_type"] == "Unknown")
     if unresolved:

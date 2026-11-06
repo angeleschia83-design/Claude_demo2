@@ -32,6 +32,7 @@
   let session = { role: null };
   let HOLDERS = [];
   let FLEET = [];
+  let SUMMARY = { rows: [], total: 0, duplicates: [] };
   const view = { q: '', type: '', dev: '', res: '', col: 'name', dir: 1 };
 
   const canEdit = () => session.role === 'admin' || session.role === 'editor';
@@ -378,7 +379,109 @@
     }
   }
 
-  const draw = () => { tiles(); mix(); fleet(); table(); };
+  const draw = () => { tiles(); mix(); fleet(); table(); summary(); };
+
+  /* ---------- asset summary ---------- */
+
+  /* Rows come back grouped by type, status, model and age. Everything below
+     is a pivot of those rows, so a value nobody has seen before simply turns
+     up as another heading. */
+  const pivot = (rows, down, across) => {
+    const downs = [...new Set(rows.map((r) => r[down]))].sort();
+    const acrosses = [...new Set(rows.map((r) => r[across]))].sort();
+    const cells = new Map();
+    for (const r of rows) {
+      const key = `${r[down]}\u0000${r[across]}`;
+      cells.set(key, (cells.get(key) || 0) + r.n);
+    }
+    return { downs, acrosses, at: (d, a) => cells.get(`${d}\u0000${a}`) || 0 };
+  };
+
+  function drawPivot(headId, bodyId, rows, down, across, firstLabel) {
+    const { downs, acrosses, at } = pivot(rows, down, across);
+    const head = $(headId);
+    head.replaceChildren();
+    for (const label of [firstLabel, ...acrosses, 'Total']) {
+      const th = document.createElement('th');
+      th.textContent = label;
+      head.appendChild(th);
+    }
+    const body = $(bodyId);
+    body.replaceChildren();
+    const colTotals = new Map();
+    let grand = 0;
+    for (const d of downs) {
+      const tr = document.createElement('tr');
+      const name = document.createElement('td');
+      name.textContent = d;
+      tr.appendChild(name);
+      let rowTotal = 0;
+      for (const a of acrosses) {
+        const v = at(d, a);
+        rowTotal += v;
+        colTotals.set(a, (colTotals.get(a) || 0) + v);
+        const td = document.createElement('td');
+        td.className = 'num';
+        td.textContent = v ? nf.format(v) : '';
+        tr.appendChild(td);
+      }
+      grand += rowTotal;
+      const total = document.createElement('td');
+      total.className = 'num';
+      total.textContent = nf.format(rowTotal);
+      total.style.fontWeight = '500';
+      tr.appendChild(total);
+      body.appendChild(tr);
+    }
+    const foot = document.createElement('tr');
+    const label = document.createElement('td');
+    label.textContent = 'Total';
+    label.style.fontWeight = '500';
+    foot.appendChild(label);
+    for (const a of acrosses) {
+      const td = document.createElement('td');
+      td.className = 'num';
+      td.style.fontWeight = '500';
+      td.textContent = nf.format(colTotals.get(a) || 0);
+      foot.appendChild(td);
+    }
+    const grandCell = document.createElement('td');
+    grandCell.className = 'num';
+    grandCell.style.fontWeight = '600';
+    grandCell.textContent = nf.format(grand);
+    foot.appendChild(grandCell);
+    body.appendChild(foot);
+    return grand;
+  }
+
+  function summary() {
+    const rows = SUMMARY.rows;
+    if (!rows.length) return;
+    const counted = drawPivot('sum-type-head', 'sum-type-body', rows, 'type', 'status', 'Asset type');
+    $('sum-line').textContent = counted === SUMMARY.total
+      ? `All ${nf.format(SUMMARY.total)} assets in the inventory are counted below.`
+      : `${nf.format(counted)} counted of ${nf.format(SUMMARY.total)} assets \u2014 tell Claude, this should never happen.`;
+
+    const pick = $('sum-pick');
+    const types = [...new Set(rows.map((r) => r.type))].sort();
+    if (pick.options.length !== types.length) {
+      pick.replaceChildren(...types.map((t) => new Option(t, t)));
+      pick.value = types.includes('Laptop') ? 'Laptop' : types[0];
+    }
+    const chosen = rows.filter((r) => r.type === pick.value);
+    drawPivot('sum-model-head', 'sum-model-body', chosen, 'model', 'status', `${pick.value} model`);
+    drawPivot('sum-age-head', 'sum-age-body', chosen, 'status', 'age', 'Status');
+
+    const dupes = SUMMARY.duplicates || [];
+    $('sum-dupes').textContent = dupes.length
+      ? `${dupes.length} serial numbers appear more than once in the workbook `
+        + `(${dupes.map((d) => d.serial).join(', ')}). A serial is one piece of hardware, so each is `
+        + 'counted once here. Three of them are a laptop recorded as both a spare and assigned to somebody, '
+        + 'which is worth correcting in the workbook.'
+      : '';
+  }
+
+  $('sum-pick').addEventListener('change', summary);
 
   /* ---------- admin panel ---------- */
 
@@ -537,9 +640,10 @@
       : `${session.label} — ${session.role === 'editor' ? 'you can make corrections' : 'you can look only'}`;
     if (!canEdit()) say('Your link lets you look, not change.');
     try {
-      const data = await api('/api/holders');
+      const [data, sum] = await Promise.all([api('/api/holders'), api('/api/summary')]);
       HOLDERS = data.holders;
       FLEET = data.fleet;
+      SUMMARY = sum;
       draw();
       loadAdmin();
     } catch (e) {

@@ -18,7 +18,7 @@ if (fs.existsSync(envFile)) {
   }
 }
 
-const { db } = await import('../src/db.mjs');
+const { db, setNote } = await import('../src/db.mjs');
 
 /** RFC 4180: quoted fields, doubled quotes, commas and newlines inside them. */
 function parseCsv(text) {
@@ -55,6 +55,25 @@ const read = (name) => {
 const people = read('people.csv');
 const devices = read('devices.csv');
 
+/* A serial number is one piece of hardware, so the same serial twice is one
+   asset, not two. Three laptops in the workbook are listed both as a spare
+   and as assigned to somebody; the assigned row is the true one, so held
+   rows are written last and win. The pairs are recorded either way. */
+const seen = new Map();
+for (const d of devices) seen.set(d.serial, (seen.get(d.serial) || 0) + 1);
+const duplicated = [...seen.entries()].filter(([, n]) => n > 1).map(([serial]) => serial);
+const duplicates = duplicated.map((serial) => {
+  const rows = devices.filter((d) => d.serial === serial);
+  return {
+    serial,
+    asset_type: rows[0].asset_type,
+    model: rows[0].model,
+    statuses: [...new Set(rows.map((d) => d.status || '(blank)'))],
+    holder: rows.map((d) => d.holder).find(Boolean) || '',
+  };
+});
+devices.sort((a, b) => (a.held === 'yes' ? 1 : 0) - (b.held === 'yes' ? 1 : 0));
+
 const upsertHolder = db.prepare(`
   INSERT INTO holders (id, name, base_type, device_status, position, department, unit, division,
                        ad_id, email, laptops_held, ipads_held, devices_held,
@@ -80,11 +99,15 @@ const upsertHolder = db.prepare(`
 `);
 
 const upsertDevice = db.prepare(`
-  INSERT INTO devices (serial, kind, model, holder_id, holder, assigned_on, age_years, os, host_name, specs, remarks)
-  VALUES (@serial, @kind, @model, @holder_id, @holder, @assigned_on, @age_years, @os, @host_name, @specs, @remarks)
+  INSERT INTO devices (serial, asset_type, kind, model, status, held, holder_id, holder,
+                       assigned_on, age_years, os, host_name, specs, remarks)
+  VALUES (@serial, @asset_type, @kind, @model, @status, @held, @holder_id, @holder,
+          @assigned_on, @age_years, @os, @host_name, @specs, @remarks)
   ON CONFLICT(serial) DO UPDATE SET
-    kind = excluded.kind, model = excluded.model, holder_id = excluded.holder_id,
-    holder = excluded.holder, assigned_on = excluded.assigned_on, age_years = excluded.age_years,
+    asset_type = excluded.asset_type, kind = excluded.kind, model = excluded.model,
+    status = excluded.status, held = excluded.held,
+    holder_id = excluded.holder_id, holder = excluded.holder,
+    assigned_on = excluded.assigned_on, age_years = excluded.age_years,
     os = excluded.os, host_name = excluded.host_name, specs = excluded.specs, remarks = excluded.remarks
 `);
 
@@ -109,7 +132,9 @@ const run = db.transaction(() => {
   }
   for (const d of devices) {
     upsertDevice.run({
-      serial: d.serial, kind: d.kind, model: d.model, holder_id: d.holder_id, holder: d.holder,
+      serial: d.serial, asset_type: d.asset_type ?? '', kind: d.kind, model: d.model,
+      status: d.status ?? '', held: d.held === 'yes' ? 1 : 0,
+      holder_id: d.holder_id || null, holder: d.holder || null,
       assigned_on: d.assigned_on, age_years: d.age_years, os: d.os ?? '',
       host_name: d.host_name ?? '', specs: d.specs ?? '', remarks: d.remarks ?? '',
     });
@@ -129,12 +154,20 @@ const run = db.transaction(() => {
 });
 
 const { goneHolders, goneDevices } = run();
+setNote('duplicate_serials', duplicates);
 const kept = db.prepare(
   'SELECT COUNT(*) AS n FROM holders WHERE type IS NOT NULL OR resigned IS NOT NULL OR note IS NOT NULL',
 ).get().n;
 const left = db.prepare('SELECT COUNT(*) AS n FROM holders WHERE base_resigned = 1').get().n;
 
-console.log(`${people.length} holders and ${devices.length} devices imported.`);
+const held = devices.filter((d) => d.held === 'yes').length;
+console.log(`${people.length} holders and ${devices.length} assets imported (${held} held by someone).`);
+if (duplicates.length) {
+  console.log(`${duplicates.length} serial numbers appear more than once in the workbook and were stored once each:`);
+  for (const d of duplicates) {
+    console.log(`  ${d.serial}  ${d.asset_type}  ${d.statuses.join(' / ')}${d.holder ? `  ${d.holder}` : ''}`);
+  }
+}
 if (goneHolders || goneDevices) console.log(`Removed ${goneHolders} holders and ${goneDevices} devices no longer in the workbook.`);
 console.log(`${kept} corrections kept.`);
 if (left) console.log(`${left} holders are on HR's resigned list.`);

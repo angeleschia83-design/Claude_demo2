@@ -64,14 +64,22 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS devices (
     serial      TEXT PRIMARY KEY,
+    asset_type  TEXT,
     kind        TEXT NOT NULL,
     model       TEXT NOT NULL,
+    status      TEXT,
+    held        INTEGER NOT NULL DEFAULT 0,
     holder_id   TEXT,
     holder      TEXT,
     assigned_on TEXT, age_years TEXT, os TEXT, host_name TEXT,
     specs       TEXT, remarks TEXT
   );
   CREATE INDEX IF NOT EXISTS devices_holder ON devices(holder_id);
+
+  CREATE TABLE IF NOT EXISTS notes (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+  );
 
   CREATE TABLE IF NOT EXISTS invites (
     token      TEXT PRIMARY KEY,
@@ -95,6 +103,16 @@ db.exec(`
 `);
 
 /* Databases made before HR's resigned list existed are brought forward. */
+for (const [column, definition] of [
+  ['asset_type', 'TEXT'],
+  ['status', 'TEXT'],
+  ['held', 'INTEGER NOT NULL DEFAULT 0'],
+].filter(() => true)) {
+  const present = handle.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?')
+    .get('devices', column);
+  if (!present) handle.exec(`ALTER TABLE devices ADD COLUMN ${column} ${definition}`);
+}
+
 for (const [column, definition] of [
   ['base_resigned', 'INTEGER NOT NULL DEFAULT 0'],
   ['last_working_day', 'TEXT'],
@@ -146,8 +164,13 @@ const SELECT = `
 
 const allHolders = db.prepare(`${SELECT} ORDER BY name COLLATE NOCASE`);
 const oneHolder = db.prepare(`${SELECT} WHERE id = ?`);
+/* The fleet chart is about hardware in people's hands, so it counts only the
+   held rows. The asset summary below counts everything. */
 const fleetRows = db.prepare(
-  `SELECT model, kind, COUNT(*) AS n FROM devices GROUP BY model, kind ORDER BY n DESC`,
+  `SELECT CASE WHEN model = '' THEN 'Model not recorded' ELSE model END AS model,
+          kind, COUNT(*) AS n
+     FROM devices WHERE held = 1
+    GROUP BY model, kind ORDER BY n DESC`,
 );
 
 const serials = (value) => String(value || '').split(';').map((x) => x.trim()).filter(Boolean);
@@ -240,6 +263,46 @@ export const updateHolder = db.transaction((id, patch, actor) => {
     writeAudit.run(at, actor, id, field, oldValue, newValue);
   }
   return getHolder(id);
+});
+
+/* Counted from the rows themselves, so an asset type, status or model nobody
+   has seen before appears on its own. This is what the spreadsheet could not
+   do: its COUNTIFS named every model in the formula, and quietly dropped
+   anything that was not on the list. */
+const blank = (column, label) =>
+  `CASE WHEN ${column} IS NULL OR ${column} = '' THEN '${label}' ELSE ${column} END`;
+
+const summaryRows = db.prepare(`
+  SELECT ${blank('asset_type', 'No asset type')} AS type,
+         ${blank('status', 'No status recorded')} AS status,
+         ${blank('model', 'No model recorded')} AS model,
+         CASE WHEN age_years IS NULL OR age_years = '' THEN 'No age recorded'
+              WHEN CAST(age_years AS REAL) <= 2 THEN '2 years or less'
+              ELSE 'Over 2 years' END AS age,
+         COUNT(*) AS n
+    FROM devices
+   GROUP BY type, status, model, age`);
+
+export const setNote = (key, value) =>
+  db.prepare('INSERT INTO notes (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .run(key, JSON.stringify(value));
+
+export const getNote = (key) => {
+  const row = db.prepare('SELECT value FROM notes WHERE key = ?').get(key);
+  if (!row) return null;
+  try {
+    return JSON.parse(row.value);
+  } catch (err) {
+    return null;
+  }
+};
+
+export const listSummary = () => ({
+  rows: summaryRows.all().map((row) => ({ ...row })),
+  total: db.prepare('SELECT COUNT(*) AS n FROM devices').get().n,
+  /* A serial is one piece of hardware, so a serial listed twice is stored
+     once. Saying how many were collapsed keeps that honest. */
+  duplicates: getNote('duplicate_serials') || [],
 });
 
 export const listAudit = (limit = 200) =>

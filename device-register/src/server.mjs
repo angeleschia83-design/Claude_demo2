@@ -19,8 +19,8 @@ if (fs.existsSync(envFile)) {
   }
 }
 
-const { db, listHolders, getHolder, listFleet, listDevices, updateHolder, listAudit, editableFields } =
-  await import('./db.mjs');
+const { db, listHolders, getHolder, listFleet, listDevices, updateHolder, listAudit,
+        editableFields, listSummary } = await import('./db.mjs');
 const { sessions, requireRole, makeSession, checkAdminPassword, cookieName, cookieOptions, newToken } =
   await import('./auth.mjs');
 
@@ -84,6 +84,12 @@ app.get('/api/holders', requireRole('admin', 'editor', 'viewer'), (req, res) => 
 
 app.get('/api/holders/:id/devices', requireRole('admin', 'editor', 'viewer'), (req, res) => {
   res.json(listDevices(req.params.id));
+});
+
+/* Every asset, counted by type, status, model and age. Nothing is filtered
+   or named in advance, so a new model or status arrives on its own. */
+app.get('/api/summary', requireRole('admin', 'editor', 'viewer'), (req, res) => {
+  res.json(listSummary());
 });
 
 const TYPES = ['Sales', 'HO', 'Unknown'];
@@ -187,6 +193,54 @@ app.get('/api/export.xlsx', requireRole('admin', 'editor', 'viewer'), (req, res)
   const summary = XLSX.utils.json_to_sheet([...counts.values()]);
   summary['!cols'] = [{ wch: 12 }, { wch: 9 }, { wch: 9 }, { wch: 8 }, { wch: 8 }, { wch: 10 }];
   XLSX.utils.book_append_sheet(book, summary, 'Summary');
+
+  /* The asset summary the spreadsheet used to hold, counted from the rows so
+     a new model or status cannot be dropped. */
+  const asset = listSummary();
+  const pivot = (source, down, across, firstLabel) => {
+    const downs = [...new Set(source.map((r) => r[down]))].sort();
+    const acrosses = [...new Set(source.map((r) => r[across]))].sort();
+    const at = new Map();
+    for (const r of source) {
+      const key = `${r[down]}\u0000${r[across]}`;
+      at.set(key, (at.get(key) || 0) + r.n);
+    }
+    return downs.map((d) => {
+      const line = { [firstLabel]: d };
+      let total = 0;
+      for (const a of acrosses) {
+        const v = at.get(`${d}\u0000${a}`) || 0;
+        line[a] = v || '';
+        total += v;
+      }
+      line.Total = total;
+      return line;
+    });
+  };
+
+  const byType = XLSX.utils.json_to_sheet(pivot(asset.rows, 'type', 'status', 'Asset type'));
+  byType['!cols'] = [{ wch: 22 }, ...Array(10).fill({ wch: 13 })];
+  XLSX.utils.book_append_sheet(book, byType, 'Assets by type');
+
+  const byModel = XLSX.utils.json_to_sheet(
+    pivot(asset.rows.filter((r) => r.type === 'Laptop' || r.type === 'iPad' || r.type === 'Imac'),
+          'model', 'status', 'Model'));
+  byModel['!cols'] = [{ wch: 22 }, ...Array(10).fill({ wch: 13 })];
+  XLSX.utils.book_append_sheet(book, byModel, 'Laptops and iPads by model');
+
+  const byAge = XLSX.utils.json_to_sheet(pivot(asset.rows, 'type', 'age', 'Asset type'));
+  byAge['!cols'] = [{ wch: 22 }, ...Array(4).fill({ wch: 16 })];
+  XLSX.utils.book_append_sheet(book, byAge, 'Asset age');
+
+  if (asset.duplicates.length) {
+    const dupes = XLSX.utils.json_to_sheet(asset.duplicates.map((d) => ({
+      Serial: d.serial, 'Asset type': d.asset_type, Model: d.model,
+      'Listed as': d.statuses.join(' / '), 'Assigned to': d.holder,
+      Note: 'One serial is one piece of hardware, so this is counted once.',
+    })));
+    dupes['!cols'] = [{ wch: 16 }, { wch: 14 }, { wch: 18 }, { wch: 30 }, { wch: 22 }, { wch: 58 }];
+    XLSX.utils.book_append_sheet(book, dupes, 'Duplicate serials');
+  }
 
   res.type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.attachment('device-holders.xlsx');

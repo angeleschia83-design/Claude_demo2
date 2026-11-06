@@ -7,6 +7,27 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
+## 2.1.0 — 6 November 2026
+
+**The asset summary moves into the app**, so the spreadsheet tracker no longer
+has to be kept by hand.
+
+- The whole inventory is imported now, not only the 543 devices people hold:
+  all 1,545 rows, accessories, spares, network kit and retired assets included.
+  The holder register is unchanged; it reads the held rows.
+- A new section counts every asset by type, status, model and age. Nothing is
+  named in advance, so a model, status or asset type nobody has seen before
+  appears on its own. The spreadsheet could not do this: its COUNTIFS spelled
+  out every model, and silently dropped anything not on the list. That is how
+  19 laptops and 12 iPads went missing from it.
+- A line above the tables compares what was counted against the number of
+  assets, and says so if they ever differ.
+- Exports gained four sheets: Assets by type, Laptops and iPads by model,
+  Asset age, and Duplicate serials.
+- Four serial numbers appear twice in the workbook. A serial is one piece of
+  hardware, so each is stored once; the assigned row wins over the spare row,
+  and the pairs are listed rather than quietly merged.
+
 ## 2.0.0 — 5 November 2026
 
 **Every column can be corrected.** Not just type, resigned and note: a holder's

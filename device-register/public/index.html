@@ -106,6 +106,35 @@
     </div>
   </section>
 
+  <section class="card" id="summary-card" aria-label="Asset summary">
+    <h2>Every asset, not just the ones people hold</h2>
+    <p class="muted">Counted from the inventory itself. A model, status or asset type nobody has
+      seen before appears here on its own — nothing has to be added first.</p>
+    <p class="count" id="sum-line">&nbsp;</p>
+
+    <div class="scroll" style="max-height: 24rem">
+      <table id="sum-type"><thead><tr id="sum-type-head"></tr></thead><tbody id="sum-type-body"></tbody></table>
+    </div>
+
+    <div class="controls">
+      <label class="field"><span>Break down by model</span>
+        <select class="txt" id="sum-pick"></select>
+      </label>
+    </div>
+    <div class="scroll" style="max-height: 22rem">
+      <table id="sum-model"><thead><tr id="sum-model-head"></tr></thead><tbody id="sum-model-body"></tbody></table>
+    </div>
+
+    <h2>Age of the assets</h2>
+    <p class="muted">For the asset type chosen above. Anything with no age recorded gets its own column
+      rather than being left out.</p>
+    <div class="scroll" style="max-height: 18rem">
+      <table id="sum-age"><thead><tr id="sum-age-head"></tr></thead><tbody id="sum-age-body"></tbody></table>
+    </div>
+
+    <p class="muted" id="sum-dupes"></p>
+  </section>
+
   <section class="card admin" id="admin" aria-label="Sharing and history" hidden>
     <h2>Links you have given out</h2>
     <p class="muted">An editor link lets whoever opens it make corrections. A viewer link lets them look only. Neither needs an account.</p>

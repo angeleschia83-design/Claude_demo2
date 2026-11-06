@@ -242,6 +242,22 @@ Dockerfile              two-stage build, runs as the node user
 compose.yaml            the app, a volume for the database, data/ read-only
 ```
 
+## The asset summary
+
+The register answers "who holds what". The asset summary answers "what do we
+own", and covers everything with a serial number: accessories, spares, network
+kit and retired assets as well as the laptops and iPads people hold.
+
+Every figure is counted from the inventory rows. Nothing is named in advance,
+so a model, status or asset type that has never been seen appears on its own.
+That is the whole point of it: the spreadsheet it replaces counted with
+COUNTIFS against model and status names typed into the formulas, so anything
+spelled differently, or simply new, was dropped without a word. Nineteen
+laptops and twelve iPads were missing from it that way.
+
+A line above the tables compares the total counted against the number of
+assets held, and says so if they ever differ.
+
 ## What it deliberately does not do
 
 - **Devices are read-only.** Serials, models and counts come straight from the
@@ -250,5 +266,6 @@ compose.yaml            the app, a volume for the database, data/ read-only
 - **Assets that are not `Active/ Assigned` are left out.** 42 inventory rows
   name a person while marked Available, For Repair, Retired or blank. They are
   records worth cleaning, not devices in someone's hands.
-- **Accessories are left out** — iPad keyboards, pencils, mice, adaptors and
-  monitors. Only laptops, iMacs and iPads are counted.
+- **Accessories stay out of the holder register** — iPad keyboards, pencils,
+  mice, adaptors and monitors. Only laptops, iMacs and iPads count as held.
+  They are all in the asset summary.
