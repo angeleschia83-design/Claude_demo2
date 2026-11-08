@@ -24,6 +24,12 @@ const { db, listHolders, getHolder, listFleet, listDevices, updateHolder, listAu
 const { sessions, requireRole, makeSession, checkAdminPassword, cookieName, cookieOptions, newToken } =
   await import('./auth.mjs');
 const { parseChanges, planChanges, patchesFor } = await import('./merge.mjs');
+const assets = await import('./assets.mjs');
+const reconcile = await import('./reconcile.mjs');
+
+/* The words a person may pick from are seeded once, from whatever the
+   workbook already used. */
+assets.seedLists();
 
 const app = express();
 app.disable('x-powered-by');
@@ -122,14 +128,127 @@ app.patch('/api/holders/:id', requireRole('admin', 'editor'), (req, res) => {
   res.json(row);
 });
 
+/* A paste or a pick-list can be long, so these routes take a larger body
+   than the rest. */
+const mergeBody = express.json({ limit: '2mb' });
+
+/* ---------- the assets themselves ---------- */
+
+/* An asset is corrected the same way a holder is: the workbook's row is the
+   base, what is set here wins, and an import leaves it alone. */
+const assetError = (res, error) => res.status(400).json({ error: error.message || String(error) });
+
+app.get('/api/assets', requireRole('admin', 'editor', 'viewer'), (req, res) => {
+  res.json({ assets: assets.listAssets(), lists: assets.allLists(), fields: assets.assetFields });
+});
+
+app.post('/api/assets', requireRole('admin', 'editor'), (req, res) => {
+  try {
+    res.json(assets.addAsset(req.body || {}, req.session.label));
+  } catch (error) { assetError(res, error); }
+});
+
+app.patch('/api/assets/:serial', requireRole('admin', 'editor'), (req, res) => {
+  const body = req.body || {};
+  try {
+    /* A serial is the asset's identity rather than one of its fields, so
+       changing it moves the row and everything logged against it. */
+    if (typeof body.serial === 'string') {
+      const moved = assets.renameAsset(req.params.serial, body.serial, req.session.label);
+      if (!moved) return res.status(404).json({ error: 'No asset with that serial.' });
+      const { serial, ...rest } = body;
+      const row = Object.keys(rest).length
+        ? assets.updateAsset(moved.serial, rest, req.session.label)
+        : moved;
+      return res.json(row);
+    }
+    const row = assets.updateAsset(req.params.serial, body, req.session.label);
+    if (!row) return res.status(404).json({ error: 'No asset with that serial.' });
+    res.json(row);
+  } catch (error) { assetError(res, error); }
+});
+
+/* Handing hardware out. Anything that is usually a mistake stops here and
+   asks for a ticket number, which is then recorded against the change. */
+app.post('/api/assets/:serial/assign', requireRole('admin', 'editor'), (req, res) => {
+  try {
+    const out = assets.assignAsset(req.params.serial, String(req.body?.holder_id || ''), {
+      actor: req.session.label,
+      ticket: req.body?.ticket,
+    });
+    if (out.error) return res.status(404).json({ error: out.error });
+    if (out.needTicket) {
+      return res.status(409).json({
+        needTicket: true,
+        reasons: out.reasons,
+        asset: out.asset,
+        holder: { id: out.holder.id, name: out.holder.name },
+      });
+    }
+    res.json(out);
+  } catch (error) { assetError(res, error); }
+});
+
+app.post('/api/assets/:serial/return', requireRole('admin', 'editor'), (req, res) => {
+  try {
+    const out = assets.returnAsset(req.params.serial, {
+      actor: req.session.label,
+      status: req.body?.status,
+      ticket: req.body?.ticket,
+    });
+    if (out.error) return res.status(400).json({ error: out.error });
+    res.json(out);
+  } catch (error) { assetError(res, error); }
+});
+
+/* ---------- somebody who joined between workbooks ---------- */
+
+app.post('/api/holders', requireRole('admin', 'editor'), (req, res) => {
+  try {
+    res.json(assets.addHolder(req.body || {}, req.session.label));
+  } catch (error) { assetError(res, error); }
+});
+
+/* ---------- the words people may pick from ---------- */
+
+app.get('/api/lists', requireRole('admin', 'editor', 'viewer'), (req, res) => {
+  res.json(assets.allLists());
+});
+
+app.post('/api/lists/:kind', requireRole('admin', 'editor'), (req, res) => {
+  try {
+    res.json(assets.addValue(req.params.kind, req.body?.value, req.session.label));
+  } catch (error) { assetError(res, error); }
+});
+
+app.patch('/api/lists/:kind/:value', requireRole('admin'), (req, res) => {
+  try {
+    res.json(assets.setValueFlag(req.params.kind, req.params.value, req.body || {}, req.session.label));
+  } catch (error) { assetError(res, error); }
+});
+
+/* ---------- a new workbook, waiting to be looked at ---------- */
+
+app.get('/api/workbook', requireRole('admin'), (req, res) => {
+  res.json(reconcile.reconcilePlan() || { waiting: false });
+});
+
+app.post('/api/workbook/apply', requireRole('admin'), mergeBody, (req, res) => {
+  const out = reconcile.applyPlan(req.body?.picked, req.session.label);
+  if (out.error) return res.status(400).json(out);
+  res.json({ ...out, plan: reconcile.reconcilePlan(), holders: listHolders(), fleet: listFleet() });
+});
+
+app.post('/api/workbook/discard', requireRole('admin'), (req, res) => {
+  reconcile.clearStage();
+  res.json({ waiting: false });
+});
+
 /* ---------- changes handed back from the offline copy ---------- */
 
 /* Somebody outside the office works in the offline HTML copy and sends back
    a block of text. It is read, shown as a list of before-and-afters, and
-   only then applied — and only the lines that are ticked. A paste can be
-   long, so these two routes take a larger body than the rest. */
-const mergeBody = express.json({ limit: '2mb' });
-
+   only then applied — and only the lines that are ticked. */
 const planFromBody = (req) => planChanges(parseChanges(req.body?.text), listHolders());
 
 app.post('/api/merge/preview', requireRole('admin', 'editor'), mergeBody, (req, res) => {
@@ -328,9 +447,10 @@ app.get('/api/audit.csv', requireRole('admin', 'editor'), (req, res) => {
     const text = String(value ?? '');
     return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
-  const head = ['When', 'Who', 'Holder', 'Field', 'Was', 'Became'];
+  const head = ['When', 'Who', 'Holder or asset', 'Field', 'Was', 'Became', 'Ticket'];
   const body = listAudit(5000).map((e) =>
-    [e.at, e.actor, e.name || e.holder_id, e.field, e.old_value, e.new_value].map(escape).join(','));
+    [e.at, e.actor, e.name || e.serial || e.holder_id, e.field, e.old_value, e.new_value, e.ticket]
+      .map(escape).join(','));
   res.type('text/csv').attachment('change-log.csv');
   res.send([head.join(','), ...body].join('\r\n'));
 });

@@ -33,6 +33,7 @@
         <span class="whoami" id="version" title="Version of the register"></span>
         <button type="button" class="btn btn-quiet btn-small" id="export">Export CSV</button>
         <button type="button" class="btn btn-quiet btn-small" id="export-xlsx">Export Excel</button>
+      <button type="button" class="btn btn-quiet btn-small" id="h-add">Add a person</button>
         <button type="button" class="btn btn-quiet btn-small" id="logout">Sign out</button>
       </div>
     </div>
@@ -141,6 +142,81 @@
     <div class="cols" id="problems"></div>
   </section>
 
+  <section class="card" id="assets-card" aria-label="Assets" hidden>
+    <h2>Assets</h2>
+    <p class="muted">Every serial in the inventory, not only the ones in somebody's hands. Click a cell
+      to correct it. Status, asset type and model are picked from a list, so the same thing is spelled
+      one way everywhere.</p>
+    <div class="controls">
+      <label class="field"><span>Search</span>
+        <input class="txt search" id="a-q" type="search" placeholder="Serial, model, holder…" aria-label="Search assets">
+      </label>
+      <label class="field"><span>Status</span><select class="txt" id="a-status"></select></label>
+      <label class="field"><span>Asset type</span><select class="txt" id="a-type"></select></label>
+      <label class="field"><span>Where it is</span>
+        <select class="txt" id="a-held">
+          <option value="">Anywhere</option>
+          <option value="yes">Out with somebody</option>
+          <option value="no">In stock</option>
+        </select>
+      </label>
+      <button type="button" class="btn" id="a-add">Add an asset</button>
+    </div>
+
+    <form class="newrow" id="a-new" hidden>
+      <label class="field"><span>Serial</span><input class="txt" id="n-serial" required maxlength="120"></label>
+      <label class="field"><span>Kind</span>
+        <select class="txt" id="n-kind">
+          <option value="Laptop">Laptop</option>
+          <option value="iPad">iPad</option>
+          <option value="Other" selected>Other</option>
+        </select>
+      </label>
+      <label class="field"><span>Asset type</span><select class="txt" id="n-type"></select></label>
+      <label class="field"><span>Model</span><select class="txt" id="n-model"></select></label>
+      <label class="field"><span>Status</span><select class="txt" id="n-status"></select></label>
+      <button type="submit" class="btn">Add it</button>
+      <button type="button" class="btn btn-quiet" id="n-cancel">Cancel</button>
+    </form>
+
+    <p class="count" id="a-count">&nbsp;</p>
+    <div class="scroll" style="max-height: 32rem">
+      <table>
+        <thead><tr id="a-head"></tr></thead>
+        <tbody id="a-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="lists-card" aria-label="The words people pick from" hidden>
+    <h2>The words people pick from</h2>
+    <p class="muted">Status, asset type and model are picked from these lists rather than typed, which
+      is what stops one thing being counted as two. Adding a word is deliberate and is recorded. A
+      status that is not hardware to hand out stops an assignment unless a ticket number is given.</p>
+    <div class="cols" id="lists"></div>
+  </section>
+
+  <section class="card" id="workbook-card" aria-label="From the workbook" hidden>
+    <h2>From the workbook</h2>
+    <p class="muted" id="wb-note"></p>
+    <p class="count" id="wb-line">&nbsp;</p>
+    <div id="wb-result" hidden>
+      <div class="scroll" style="max-height: 26rem">
+        <table>
+          <thead><tr>
+            <th><input type="checkbox" id="wb-all" aria-label="Tick everything that does not undo a correction"></th>
+            <th>Row</th><th>Field</th><th>The register shows</th><th>The workbook says</th><th></th>
+          </tr></thead>
+          <tbody id="wb-body"></tbody>
+        </table>
+      </div>
+      <div class="controls">
+        <button type="button" class="btn" id="wb-apply">Take the ticked ones</button>
+        <button type="button" class="btn btn-quiet btn-small" id="wb-discard">Put this workbook aside</button>
+      </div>
+    </div>
+  </section>
+
   <section class="card" id="merge-card" aria-label="Changes from a colleague" hidden>
     <h2>Changes from a colleague</h2>
     <p class="muted">Whoever you sent the offline copy to can hand their corrections back as a block of
@@ -178,14 +254,14 @@
     <p class="muted" id="log-note"></p>
     <div class="controls">
       <label class="field"><span>Search the log</span>
-        <input class="txt" id="log-q" type="search" placeholder="Name, field, who made it…" aria-label="Search the change log">
+        <input class="txt" id="log-q" type="search" placeholder="Name, serial, ticket, who made it…" aria-label="Search the change log">
       </label>
       <button type="button" class="btn btn-quiet btn-small" id="log-export">Export the log</button>
     </div>
     <p class="count" id="log-count">&nbsp;</p>
     <div class="scroll" style="max-height: 26rem">
       <table>
-        <thead><tr><th>When</th><th>Who</th><th>Holder</th><th>Field</th><th>Was</th><th>Became</th></tr></thead>
+        <thead><tr><th>When</th><th>Who</th><th>Holder or asset</th><th>Field</th><th>Was</th><th>Became</th><th>Ticket</th></tr></thead>
         <tbody id="log-body"></tbody>
       </table>
     </div>
@@ -224,6 +300,50 @@
   </section>
 </div>
 
+
+<dialog id="assign-dlg" aria-label="Hand an asset out">
+  <form method="dialog" id="assign-form">
+    <h3 id="assign-title">Hand it out</h3>
+    <label class="field block"><span>Who is it for</span>
+      <input class="txt" id="assign-who" list="holder-list" placeholder="Start typing a name…" autocomplete="off">
+      <datalist id="holder-list"></datalist>
+    </label>
+    <div id="assign-reasons" hidden>
+      <p class="warnline" id="assign-why"></p>
+      <label class="field block"><span>Ticket number, so this can be looked up later</span>
+        <input class="txt" id="assign-ticket" maxlength="60" placeholder="INC-1234">
+      </label>
+    </div>
+    <p class="count" id="assign-line">&nbsp;</p>
+    <div class="controls">
+      <button type="button" class="btn" id="assign-go">Assign it</button>
+      <button type="button" class="btn btn-quiet" id="assign-cancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="person-dlg" aria-label="Add a person">
+  <form method="dialog" id="person-form">
+    <h3>Somebody who joined between workbooks</h3>
+    <label class="field block"><span>Name</span><input class="txt" id="p-name" required maxlength="120"></label>
+    <label class="field block"><span>Type</span>
+      <select class="txt" id="p-type">
+        <option value="Sales">Sales</option>
+        <option value="HO">HO</option>
+        <option value="Unknown" selected>No type yet</option>
+      </select>
+    </label>
+    <label class="field block"><span>Position</span><input class="txt" id="p-pos" maxlength="200"></label>
+    <label class="field block"><span>Department</span><input class="txt" id="p-dept" maxlength="200"></label>
+    <p class="count" id="person-line">&nbsp;</p>
+    <div class="controls">
+      <button type="button" class="btn" id="person-go">Add them</button>
+      <button type="button" class="btn btn-quiet" id="person-cancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
 <script src="/app.js"></script>
+<script src="/assets.js"></script>
 </body>
 </html>

@@ -7,6 +7,64 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
+## 3.0.0 — 8 November 2026
+
+**The register becomes the tracker, rather than a view of a spreadsheet.**
+Three things changed, and each one closes a way the two used to drift apart.
+
+### Assets can be corrected here
+
+An asset now works the way a holder already did: the workbook's row is the
+base, what is set here wins, and an import leaves it alone. Status, model,
+asset type, age, host name and remark are all editable. The serial can be
+corrected too — it is the asset's identity, so it moves everything logged
+against it and refuses to land on a serial already in the register.
+
+**Add an asset** is for hardware that arrives between workbooks, and **Add a
+person** for somebody who joined between them. Neither is removed by a later
+import.
+
+### Status, asset type and model are picked from a list
+
+Seeded from whatever the workbook already used, so nothing is named in
+advance. Adding a word is deliberate and recorded, and is refused when it only
+differs from one already there by spelling or case. `Retired/Decommissioned`
+and `retired/decommision` were two statuses in the workbook, and the second
+one made an asset disappear from every count. That cannot happen again.
+
+A status also says whether it is hardware that can be handed out. Retired, for
+repair and for checking start with it off.
+
+### Handing hardware out asks before it does something odd
+
+**Hand it out** on any asset row. It stops and asks for a ticket number when
+the asset is already with somebody else, when the person already holds another
+of the same kind, when the status is not one that can be handed out, or when
+the person is marked resigned. The reason is spelled out, and the ticket is
+recorded against every line the assignment writes, so an exception can be
+traced back to whoever allowed it.
+
+Taking something back puts it in stock. Either way the holder's laptop and
+iPad columns are worked out again from the assets themselves, so the two
+tables cannot disagree.
+
+### An import no longer writes over the register
+
+This is the breaking change, and the reason for the major version. Into an
+empty register an import still writes everything. After that it writes
+**nothing**: it puts the workbook to one side, and a **From the workbook**
+section shows every difference — what it would change, what it would add, what
+it would remove, and which of those would undo a correction made here. Only
+what is ticked is taken. `npm run import -- --apply-all` keeps the old
+behaviour for anyone who wants it.
+
+### Also
+
+- The change log now carries assets as well as people, and a ticket column.
+  Searching it covers serials and ticket numbers.
+- "Worth putting right" gained **marked assigned, with nobody named** — 228
+  assets in the current workbook say somebody has them and name nobody.
+
 ## 2.3.0 — 8 November 2026
 
 **Corrections made in the offline copy can be merged back in.** Until now the

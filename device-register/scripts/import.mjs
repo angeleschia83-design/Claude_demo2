@@ -1,6 +1,15 @@
-/* Loads data/people.csv and data/devices.csv into SQLite.
-   Safe to re-run: it refreshes what the workbook owns and leaves every
-   correction made in the app (type, resigned, note) untouched. */
+/* Loads data/people.csv and data/devices.csv.
+ *
+ * The first time, into an empty register, it writes them straight in.
+ * After that it does not: a workbook nobody has checked can disagree with
+ * corrections made in the app, and overwriting them silently is how the
+ * register and the spreadsheet drift apart. So a later import puts the
+ * workbook to one side and the app shows what taking it would change,
+ * field by field, for somebody to pick.
+ *
+ * Run it with --apply-all to take the lot without looking, which is the
+ * old behaviour and occasionally what you want.
+ */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +28,8 @@ if (fs.existsSync(envFile)) {
 }
 
 const { db, setNote } = await import('../src/db.mjs');
+const { stageRows, reconcilePlan } = await import('../src/reconcile.mjs');
+const { seedLists } = await import('../src/assets.mjs');
 
 /** RFC 4180: quoted fields, doubled quotes, commas and newlines inside them. */
 function parseCsv(text) {
@@ -111,63 +122,90 @@ const upsertDevice = db.prepare(`
     os = excluded.os, host_name = excluded.host_name, specs = excluded.specs, remarks = excluded.remarks
 `);
 
-const run = db.transaction(() => {
-  const ids = new Set(people.map((p) => p.id));
-  const serials = new Set(devices.map((d) => d.serial));
+/* The rows as the register's own columns name them, so staging, comparing
+   and writing all talk about the same things. */
+const holderRows = people.map((p) => ({
+  id: p.id, name: p.name, base_type: p.employee_type, device_status: p.device_status,
+  position: p.position, department: p.department, unit: p.unit, division: p.division,
+  ad_id: p.ad_id, email: p.email,
+  laptops_held: Number(p.laptops_held || 0), ipads_held: Number(p.ipads_held || 0),
+  devices_held: Number(p.devices_held || 0),
+  laptop_serial: p.laptop_serial, laptop_model: p.laptop_model,
+  ipad_serial: p.ipad_serial, ipad_model: p.ipad_model,
+  remarks: p.remarks, label_source: p.label_source,
+  hr_status: p.hr_status ?? '',
+  base_resigned: p.resigned === 'yes' ? 1 : 0,
+  last_working_day: p.last_working_day ?? '',
+}));
 
-  for (const p of people) {
-    upsertHolder.run({
-      id: p.id, name: p.name, base_type: p.employee_type, device_status: p.device_status,
-      position: p.position, department: p.department, unit: p.unit, division: p.division,
-      ad_id: p.ad_id, email: p.email,
-      laptops_held: Number(p.laptops_held || 0), ipads_held: Number(p.ipads_held || 0),
-      devices_held: Number(p.devices_held || 0),
-      laptop_serial: p.laptop_serial, laptop_model: p.laptop_model,
-      ipad_serial: p.ipad_serial, ipad_model: p.ipad_model,
-      remarks: p.remarks, label_source: p.label_source,
-      hr_status: p.hr_status ?? '',
-      base_resigned: p.resigned === 'yes' ? 1 : 0,
-      last_working_day: p.last_working_day ?? '',
-    });
-  }
-  for (const d of devices) {
-    upsertDevice.run({
-      serial: d.serial, asset_type: d.asset_type ?? '', kind: d.kind, model: d.model,
-      status: d.status ?? '', held: d.held === 'yes' ? 1 : 0,
-      holder_id: d.holder_id || null, holder: d.holder || null,
-      assigned_on: d.assigned_on, age_years: d.age_years, os: d.os ?? '',
-      host_name: d.host_name ?? '', specs: d.specs ?? '', remarks: d.remarks ?? '',
-    });
+const deviceRows = devices.map((d) => ({
+  serial: d.serial, asset_type: d.asset_type ?? '', kind: d.kind, model: d.model,
+  status: d.status ?? '', held: d.held === 'yes' ? 1 : 0,
+  holder_id: d.holder_id || '', holder: d.holder || '',
+  assigned_on: d.assigned_on ?? '', age_years: d.age_years ?? '', os: d.os ?? '',
+  host_name: d.host_name ?? '', specs: d.specs ?? '', remarks: d.remarks ?? '',
+}));
+
+const write = db.transaction(() => {
+  const ids = new Set(holderRows.map((p) => p.id));
+  const serials = new Set(deviceRows.map((d) => d.serial));
+
+  for (const p of holderRows) upsertHolder.run(p);
+  for (const d of deviceRows) {
+    upsertDevice.run({ ...d, holder_id: d.holder_id || null, holder: d.holder || null });
   }
 
-  /* Anyone no longer holding a device leaves the register; their corrections
-     go with them, which is why the audit log keeps the history. */
+  /* Anyone no longer in the workbook leaves the register, unless they were
+     added here. The audit log keeps the history either way. */
   let goneHolders = 0;
-  for (const row of db.prepare('SELECT id FROM holders').all()) {
+  for (const row of db.prepare('SELECT id FROM holders WHERE created_here = 0').all()) {
     if (!ids.has(row.id)) { db.prepare('DELETE FROM holders WHERE id = ?').run(row.id); goneHolders += 1; }
   }
   let goneDevices = 0;
-  for (const row of db.prepare('SELECT serial FROM devices').all()) {
+  for (const row of db.prepare('SELECT serial FROM devices WHERE created_here = 0').all()) {
     if (!serials.has(row.serial)) { db.prepare('DELETE FROM devices WHERE serial = ?').run(row.serial); goneDevices += 1; }
   }
   return { goneHolders, goneDevices };
 });
 
-const { goneHolders, goneDevices } = run();
-setNote('duplicate_serials', duplicates);
-const kept = db.prepare(
-  'SELECT COUNT(*) AS n FROM holders WHERE type IS NOT NULL OR resigned IS NOT NULL OR note IS NOT NULL',
-).get().n;
-const left = db.prepare('SELECT COUNT(*) AS n FROM holders WHERE base_resigned = 1').get().n;
-
 const held = devices.filter((d) => d.held === 'yes').length;
-console.log(`${people.length} holders and ${devices.length} assets imported (${held} held by someone).`);
+const empty = db.prepare('SELECT COUNT(*) AS n FROM holders').get().n === 0;
+const takeTheLot = process.argv.includes('--apply-all');
+
+setNote('duplicate_serials', duplicates);
 if (duplicates.length) {
   console.log(`${duplicates.length} serial numbers appear more than once in the workbook and were stored once each:`);
   for (const d of duplicates) {
     console.log(`  ${d.serial}  ${d.asset_type}  ${d.statuses.join(' / ')}${d.holder ? `  ${d.holder}` : ''}`);
   }
 }
-if (goneHolders || goneDevices) console.log(`Removed ${goneHolders} holders and ${goneDevices} devices no longer in the workbook.`);
-console.log(`${kept} corrections kept.`);
-if (left) console.log(`${left} holders are on HR's resigned list.`);
+
+if (empty || takeTheLot) {
+  const { goneHolders, goneDevices } = write();
+  seedLists();
+  console.log(`${people.length} holders and ${devices.length} assets imported (${held} held by someone).`);
+  if (goneHolders || goneDevices) {
+    console.log(`Removed ${goneHolders} holders and ${goneDevices} devices no longer in the workbook.`);
+  }
+  const kept = db.prepare("SELECT COUNT(*) AS n FROM holders WHERE overrides IS NOT NULL").get().n;
+  console.log(`${kept} corrections kept.`);
+  const left = db.prepare('SELECT COUNT(*) AS n FROM holders WHERE base_resigned = 1').get().n;
+  if (left) console.log(`${left} holders are on HR's resigned list.`);
+} else {
+  stageRows('holder', holderRows);
+  stageRows('device', deviceRows);
+  setNote('staged_at', new Date().toISOString());
+  seedLists();
+  const plan = reconcilePlan();
+  const { change, clash, added, gone } = plan.totals;
+  console.log(`${people.length} holders and ${devices.length} assets read from the workbook `
+    + `(${held} held by someone).`);
+  console.log('Nothing has been written. The register already holds data, so this workbook is '
+    + 'waiting to be looked at.');
+  console.log(`  ${change} field${change === 1 ? '' : 's'} the workbook would change`);
+  if (clash) console.log(`  ${clash} of which would undo a correction made in the app`);
+  console.log(`  ${added} row${added === 1 ? '' : 's'} the workbook has that the register does not`);
+  console.log(`  ${gone} row${gone === 1 ? '' : 's'} the register has that the workbook does not`);
+  console.log('Sign in as admin and open "From the workbook" to go through them, '
+    + 'or re-run with --apply-all to take all of it.');
+}

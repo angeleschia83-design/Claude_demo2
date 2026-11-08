@@ -156,10 +156,27 @@ python3 scripts/build-data.py /path/to/new-workbook.xlsx data /path/to/new-emplo
 npm run import
 ```
 
-The import refreshes names, devices, departments and job titles. It leaves
-every correction made in the app — type, resigned, note — exactly as it was.
-Anyone no longer holding a device is removed; the change log keeps their
-history.
+**The import no longer writes over the register.** Into an empty register it
+writes everything, because there is nothing to disagree with. After that it
+puts the workbook to one side and writes nothing at all. Sign in as admin and
+a **From the workbook** section appears, listing every difference:
+
+- fields the workbook would change, ticked for you;
+- fields where somebody has already made a correction here — shown with both
+  readings and **left unticked**, because taking the workbook's value means
+  dropping that correction;
+- rows the workbook has that the register does not;
+- rows the register has that the workbook does not, which ticking removes.
+
+Press *Take the ticked ones* and only those are written. Everything taken is
+in the change log. What you leave stays waiting until you come back to it, or
+until you press *Put this workbook aside*.
+
+To take everything without looking — the old behaviour — run
+`npm run import -- --apply-all`.
+
+Anyone added in the app is never removed by an import, and neither is an asset
+added here.
 
 ## Data and privacy
 
@@ -249,6 +266,63 @@ filtered on screen. The Excel file adds a "Filtered view" sheet when a filter
 is on, so the narrowed list is there too without the full one being lost. Only
 the admin export includes network IDs and email addresses.
 
+## Assets
+
+Every serial in the inventory, not only the 543 in somebody's hands: 1,545
+rows, accessories, spares, network kit and retired assets included.
+
+Click a cell to correct it. **Status, asset type and model are picked from a
+list** rather than typed — see below. The serial itself can be corrected too;
+it is the asset's identity, so changing it moves everything logged against it,
+and it refuses to land on a serial already in the register. One serial is one
+piece of hardware.
+
+**Add an asset** is for hardware that arrives between workbooks. It is kept
+when the next workbook is imported, which would otherwise not know about it.
+
+## The words people pick from
+
+Status, asset type and model are lists, seeded from whatever the workbook
+already used — nothing is named in advance. Adding a word is deliberate, is
+recorded in the change log, and is refused if it only differs from an existing
+one by spelling or case.
+
+That is the whole point: `Retired/Decommissioned` and `retired/decommision`
+were two statuses in the workbook, and the second one made an asset vanish
+from every count. The list makes that impossible to repeat.
+
+A status also carries **can be handed out**. Statuses that read as hardware
+nobody can issue — retired, for repair, for checking — start with it off, and
+an admin can change any of them. Assigning something at one of those statuses
+stops and asks for a ticket number.
+
+## Handing hardware out
+
+Each asset row has **Hand it out** or **Take it back**.
+
+Handing out stops and asks for a ticket number when any of these is true:
+
+- the asset is already assigned to somebody else;
+- the person already holds another asset of the same kind — a second laptop;
+- the asset's status is not one that can be handed out;
+- the person is marked resigned.
+
+The reason is spelled out on screen. Give a ticket number and it proceeds, and
+**the ticket is recorded against every line it writes** in the change log, so
+an exception can always be traced back to the decision that allowed it.
+
+Taking something back puts it to *Available* and clears the holder.
+
+Either way the holder's own row is worked out again from the assets
+themselves, so the laptop and iPad columns on the Holders table can never
+drift from what the Assets table says.
+
+## Adding somebody who joined between workbooks
+
+**Add a person** on the Holders section. They get an id of their own (`N001`
+and up), they are never removed by an import, and a later workbook that does
+know them updates their row rather than making a second one.
+
 ## Changes from a colleague
 
 The offline HTML copy of this register runs from a file, with no connection to
@@ -289,7 +363,8 @@ the person by the label on the link you gave them.
 
 A section that lists what the inventory cannot be taken at face value on:
 serials listed twice, assets with no status, laptops and iPads with no model,
-statuses used once or twice, holders with no type, holders on neither HR sheet.
+statuses used once or twice, assets marked assigned with nobody named, holders
+with no type, holders on neither HR sheet, assets with no age.
 It is counted from the rows, so it keeps itself up to date.
 
 ## The asset summary

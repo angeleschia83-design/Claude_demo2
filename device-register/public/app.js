@@ -63,7 +63,13 @@
     }
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || 'The server said no.');
+      /* Some refusals are the register stopping to ask rather than a
+         failure — an assignment that needs a ticket number, for one — so
+         what came back travels with the error. */
+      const error = new Error(body.error || 'The server said no.');
+      error.status = res.status;
+      error.body = body;
+      throw error;
     }
     return res.status === 204 ? null : res.json();
   }
@@ -544,6 +550,13 @@
         PROBLEMS.offRegister.map((h) => `${h.name} \u2014 ${h.n} device${h.n === 1 ? '' : 's'}`
           + (h.department ? `, ${h.department}` : ''))));
     }
+    if (PROBLEMS.assignedToNobody && PROBLEMS.assignedToNobody.length) {
+      blocks.push(problemBlock('Marked assigned, with nobody named',
+        'The status says somebody has it and no name is recorded. Hand it out from the Assets section '
+        + 'to say who, or put it back in stock.',
+        PROBLEMS.assignedToNobody.slice(0, 200).map((d) =>
+          `${d.serial} — ${[d.asset_type, d.model].filter(Boolean).join(' ')}`)));
+    }
     if (PROBLEMS.noAge) {
       blocks.push(problemBlock('Assets with no age recorded',
         'They appear under "No age recorded" rather than being left out of the age tables.',
@@ -690,8 +703,8 @@
   function logView() {
     const q = $('log-q').value.trim().toLowerCase();
     const terms = q ? q.split(/\s+/) : [];
-    const match = (e) => terms.every((t) => [e.actor, e.name, e.holder_id, e.field, e.old_value, e.new_value]
-      .join(' ').toLowerCase().includes(t));
+    const match = (e) => terms.every((t) => [e.actor, e.name, e.serial, e.holder_id, e.ticket,
+      e.field, e.old_value, e.new_value].join(' ').toLowerCase().includes(t));
     const list = LOG.entries.filter(match);
 
     const body = $('log-body');
@@ -699,7 +712,7 @@
     if (!list.length) {
       const tr = document.createElement('tr');
       const td = document.createElement('td');
-      td.colSpan = 6;
+      td.colSpan = 7;
       td.className = 'empty';
       td.textContent = LOG.entries.length ? 'Nothing in the log matches that.' : 'Nothing has been changed yet.';
       tr.appendChild(td);
@@ -710,10 +723,11 @@
       for (const text of [
         new Date(e.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }),
         e.actor,
-        e.name || e.holder_id,
+        e.name || e.serial || e.holder_id,
         (FIELDS.find((f) => f.key === e.field) || { label: e.field }).label,
         e.old_value || '(empty)',
         e.new_value || '(empty)',
+        e.ticket || '',
       ]) {
         const td = document.createElement('td');
         td.textContent = text;
@@ -901,5 +915,25 @@
       $('rows').replaceChildren();
       $('count').textContent = `The register did not load: ${e.message}`;
     }
+
+    /* The asset side is its own file. It needs the same session, the same
+       way of talking to the server, and a way to say "the holders have
+       moved, draw them again" after an assignment. */
+    window.register = {
+      api,
+      session,
+      say,
+      refreshLog,
+      reload: async () => {
+        const data = await api('/api/holders');
+        HOLDERS = data.holders;
+        FLEET = data.fleet;
+        draw();
+        refreshLog();
+      },
+      holders: () => HOLDERS,
+      canEdit,
+    };
+    window.dispatchEvent(new CustomEvent('register-ready'));
   })();
 })();

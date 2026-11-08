@@ -81,6 +81,17 @@ db.exec(`
     value TEXT
   );
 
+  /* What a new workbook says, held to one side until somebody has looked
+     at it. An import used to overwrite the register with it, which is how a
+     correction made here could be undone by a spreadsheet nobody had
+     checked. */
+  CREATE TABLE IF NOT EXISTS stage (
+    kind TEXT NOT NULL,
+    id   TEXT NOT NULL,
+    body TEXT NOT NULL,
+    PRIMARY KEY (kind, id)
+  );
+
   CREATE TABLE IF NOT EXISTS invites (
     token      TEXT PRIMARY KEY,
     label      TEXT NOT NULL,
@@ -88,6 +99,18 @@ db.exec(`
     created_at TEXT NOT NULL,
     revoked    INTEGER NOT NULL DEFAULT 0,
     last_used  TEXT
+  );
+
+  /* The words a person may pick for a status, an asset type or a model.
+     Seeded from whatever the workbook already uses, so nothing is named in
+     advance; adding one is a deliberate act and is recorded. */
+  CREATE TABLE IF NOT EXISTS lists (
+    kind     TEXT NOT NULL,
+    value    TEXT NOT NULL,
+    added_at   TEXT, added_by TEXT,
+    assignable INTEGER NOT NULL DEFAULT 1,
+    retired    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (kind, value)
   );
 
   CREATE TABLE IF NOT EXISTS audit (
@@ -114,7 +137,30 @@ for (const [column, definition] of [
 }
 
 for (const [column, definition] of [
+  ['serial', 'TEXT'],
+  ['ticket', 'TEXT'],
+]) {
+  const present = handle.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?')
+    .get('audit', column);
+  if (!present) handle.exec(`ALTER TABLE audit ADD COLUMN ${column} ${definition}`);
+}
+
+for (const [column, definition] of [
+  ['overrides', 'TEXT'],
+  ['created_here', 'INTEGER NOT NULL DEFAULT 0'],
+  ['created_at', 'TEXT'],
+  ['created_by', 'TEXT'],
+]) {
+  const present = handle.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?')
+    .get('devices', column);
+  if (!present) handle.exec(`ALTER TABLE devices ADD COLUMN ${column} ${definition}`);
+}
+
+for (const [column, definition] of [
   ['base_resigned', 'INTEGER NOT NULL DEFAULT 0'],
+  ['created_here', 'INTEGER NOT NULL DEFAULT 0'],
+  ['created_at', 'TEXT'],
+  ['created_by', 'TEXT'],
   ['last_working_day', 'TEXT'],
   ['hr_status', 'TEXT'],
   ['overrides', 'TEXT'],
@@ -219,12 +265,19 @@ export const listFleet = () => fleetRows.all();
 export const listDevices = (id) =>
   db.prepare('SELECT * FROM devices WHERE holder_id = ? ORDER BY kind, serial').all(id);
 
-const writeAudit = db.prepare(
-  `INSERT INTO audit (at, actor, holder_id, field, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)`,
+const auditRow = db.prepare(
+  `INSERT INTO audit (at, actor, holder_id, serial, field, old_value, new_value, ticket)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 );
+/* The asset side writes here too, so one log holds everything: a holder's
+   id or an asset's serial, whichever the change was about. */
+export const recordChange = ({ at, actor, holderId = '', serial = null, field, was, now, ticket = null }) =>
+  auditRow.run(at, actor, holderId, serial, field, was ?? '', now ?? '', ticket);
+
+export { readOverrides };
 
 /* Applies only the fields that actually changed, and records each one. */
-export const updateHolder = db.transaction((id, patch, actor) => {
+export const updateHolder = db.transaction((id, patch, actor, ticket = null) => {
   const before = getHolder(id);
   if (!before) return null;
 
@@ -260,7 +313,7 @@ export const updateHolder = db.transaction((id, patch, actor) => {
   db.prepare('UPDATE holders SET overrides = ?, updated_at = ?, updated_by = ? WHERE id = ?')
     .run(Object.keys(carried).length ? JSON.stringify(carried) : null, at, actor, id);
   for (const [field, oldValue, newValue] of changes) {
-    writeAudit.run(at, actor, id, field, oldValue, newValue);
+    recordChange({ at, actor, holderId: id, field, was: oldValue, now: newValue, ticket });
   }
   return getHolder(id);
 });
@@ -330,6 +383,14 @@ export const listProblems = () => {
       `SELECT status, COUNT(*) AS n FROM devices
         WHERE status IS NOT NULL AND status <> ''
         GROUP BY status HAVING n <= 2 ORDER BY n`),
+    /* Marked as out with somebody, with nobody named. The workbook has 228
+       of these: accessories and monitors assigned to a floor or a room
+       rather than a person, which is fine until somebody has to find one. */
+    assignedToNobody: rows(
+      `SELECT serial, asset_type, model, status FROM devices
+        WHERE status LIKE '%ssigned%'
+          AND COALESCE(json_extract(overrides, '$.holder_id'), holder_id, '') = ''
+        ORDER BY asset_type, serial`),
     noAge: db.prepare(
       `SELECT COUNT(*) AS n FROM devices WHERE age_years IS NULL OR age_years = ''`).get().n,
     offRegister: rows(
