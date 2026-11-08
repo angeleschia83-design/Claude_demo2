@@ -7,6 +7,38 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
+## 3.2.0 — 8 November 2026
+
+**One person entered twice.** The register's people come from assignee names
+typed into the inventory workbook, so the same person typed two ways becomes
+two records, each holding some of their hardware. April Rose Magno-Almario and
+April Rose Magno-**Almrario** are one person with four laptops under each
+spelling. There are **twelve** such pairs in the current workbook.
+
+A new **Possible duplicate people** section proposes them and says why —
+the same words in a different order, a middle name dropped, two spellings 98%
+alike — and leaves the decision to a person, because Shaina Brazil and Shaira
+Brazil may well be two people.
+
+**Keeping one record folds the other into it**: the hardware moves across,
+anything only the folded record knew is carried over, and it stops being a
+holder. *Not the same person* dismisses a pair for good.
+
+**Folding rather than deleting, deliberately.** The workbook goes on producing
+both spellings, so a deleted record comes back at the next import with its
+hardware attached. A folded one does not. Nothing is destroyed either, so an
+admin can put a record back from the sharing section — the hardware stays
+where it was moved to.
+
+**Deleting is still there where it is safe**: a record typed into the register
+by mistake can be removed outright, as long as it holds nothing. Admins see
+them listed under *Records added here*. Asking to delete a workbook record
+explains why folding is the fix instead.
+
+The dashboard does all of this too. The offline copy lists the pairs without
+acting on them — folding needs everybody to see the same thing at once — and a
+misspelled name corrected there comes back with the rest.
+
 ## 3.1.0 — 8 November 2026
 
 **The shared copies carry the assets too.** The Claude dashboard and the

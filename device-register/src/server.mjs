@@ -20,7 +20,8 @@ if (fs.existsSync(envFile)) {
 }
 
 const { db, listHolders, getHolder, listFleet, listDevices, updateHolder, listAudit,
-        editableFields, listSummary, listProblems, countAudit } = await import('./db.mjs');
+        editableFields, listSummary, listProblems, countAudit,
+        getNote, setNote } = await import('./db.mjs');
 const { sessions, requireRole, makeSession, checkAdminPassword, cookieName, cookieOptions, newToken } =
   await import('./auth.mjs');
 const { parseChanges, planChanges, patchesFor } = await import('./merge.mjs');
@@ -225,6 +226,44 @@ app.patch('/api/lists/:kind/:value', requireRole('admin'), (req, res) => {
   try {
     res.json(assets.setValueFlag(req.params.kind, req.params.value, req.body || {}, req.session.label));
   } catch (error) { assetError(res, error); }
+});
+
+/* ---------- one person entered twice ---------- */
+
+/* The workbook names people by whatever was typed into it, so the same
+   person typed two ways is two holders with some hardware each. Folding one
+   into the other moves the hardware, keeps what only the folded record
+   knew, and survives the next import — which is why it is offered ahead of
+   deleting. */
+app.post('/api/holders/:id/merge', requireRole('admin', 'editor'), (req, res) => {
+  const out = assets.mergeHolders(req.params.id, String(req.body?.into || ''), req.session.label);
+  if (out.error) return res.status(400).json(out);
+  res.json({ ...out, holders: listHolders(), fleet: listFleet() });
+});
+
+app.post('/api/holders/:id/unmerge', requireRole('admin'), (req, res) => {
+  const out = assets.unmergeHolders(req.params.id, req.session.label);
+  if (out.error) return res.status(400).json(out);
+  res.json({ ...out, holders: listHolders(), fleet: listFleet() });
+});
+
+app.get('/api/merged', requireRole('admin', 'editor'), (req, res) => res.json(assets.listMerged()));
+
+/* Two people who happen to have near enough the same name. Saying so once
+   stops the register asking again. */
+app.post('/api/not-duplicates', requireRole('admin', 'editor'), (req, res) => {
+  const key = String(req.body?.key || '').slice(0, 80);
+  if (!key) return res.status(400).json({ error: 'Which pair?' });
+  const settled = new Set(getNote('not_duplicates') || []);
+  if (req.body?.undo) settled.delete(key); else settled.add(key);
+  setNote('not_duplicates', [...settled]);
+  res.json({ settled: [...settled] });
+});
+
+app.delete('/api/holders/:id', requireRole('admin'), (req, res) => {
+  const out = assets.deleteHolder(req.params.id, req.session.label);
+  if (out.error) return res.status(400).json(out);
+  res.json({ ...out, holders: listHolders(), fleet: listFleet() });
 });
 
 /* ---------- a new workbook, waiting to be looked at ---------- */

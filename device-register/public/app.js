@@ -513,6 +513,9 @@
     const box = $('problems');
     box.replaceChildren();
     const blocks = [];
+    if (PROBLEMS.duplicatePeople && PROBLEMS.duplicatePeople.length) {
+      blocks.push(duplicateBlock(PROBLEMS.duplicatePeople));
+    }
 
     if (PROBLEMS.duplicates.length) {
       blocks.push(problemBlock(
@@ -703,6 +706,106 @@
     }
   });
 
+  /* ---------- one person entered twice ---------- */
+
+  /* The workbook names people by whatever was typed into it, so the same
+     person typed two ways is two holders with some hardware each. The
+     register proposes the pairs; a person decides, because two people can
+     genuinely have nearly the same name. */
+  function duplicateBlock(pairs) {
+    const card = document.createElement('div');
+    card.className = 'dupes';
+    const title = document.createElement('h2');
+    title.textContent = `Possible duplicate people (${pairs.length})`;
+    card.appendChild(title);
+
+    const note = document.createElement('p');
+    note.className = 'muted';
+    note.textContent = 'One person entered twice holds some of their hardware under each name. '
+      + 'Keeping one record moves the other\u2019s hardware onto it and folds it away — which an '
+      + 'import cannot undo, unlike deleting.';
+    card.appendChild(note);
+
+    for (const pair of pairs.slice(0, 40)) {
+      const box = document.createElement('div');
+      box.className = 'pair';
+
+      for (const person of pair.people) {
+        const line = document.createElement('p');
+        line.className = 'pair-who';
+        const name = document.createElement('strong');
+        name.textContent = person.name;
+        line.appendChild(name);
+        const rest = [
+          person.type === 'Unknown' ? 'no type' : person.type,
+          person.position || person.department || '',
+          `${person.n} device${person.n === 1 ? '' : 's'}`,
+          person.createdHere ? 'added here' : '',
+        ].filter(Boolean).join(' \u00b7 ');
+        line.appendChild(document.createTextNode(` \u2014 ${rest}`));
+        if (person.lap || person.ipd) {
+          const serials = document.createElement('span');
+          serials.className = 'pair-ser';
+          serials.textContent = [person.lap, person.ipd].filter(Boolean).join('; ');
+          line.appendChild(serials);
+        }
+        box.appendChild(line);
+      }
+
+      const why = document.createElement('p');
+      why.className = 'pair-why';
+      why.textContent = pair.why;
+      box.appendChild(why);
+
+      const row = document.createElement('div');
+      row.className = 'pair-do';
+      const act = (label, run) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'rowbtn';
+        button.textContent = label;
+        button.addEventListener('click', async () => {
+          for (const other of row.querySelectorAll('button')) other.disabled = true;
+          try { await run(); } catch (error) {
+            why.textContent = error.message;
+            for (const other of row.querySelectorAll('button')) other.disabled = false;
+          }
+        });
+        row.appendChild(button);
+      };
+
+      const [first, second] = pair.people;
+      act(`Keep ${first.name}`, () => fold(second.id, first.id));
+      act(`Keep ${second.name}`, () => fold(first.id, second.id));
+      act('Not the same person', async () => {
+        await api('/api/not-duplicates', { method: 'POST', body: JSON.stringify({ key: pair.key }) });
+        PROBLEMS.duplicatePeople = PROBLEMS.duplicatePeople.filter((other) => other.key !== pair.key);
+        problems();
+      });
+      box.appendChild(row);
+      card.appendChild(box);
+    }
+    return card;
+  }
+
+  async function fold(loserId, keeperId) {
+    const out = await api(`/api/holders/${encodeURIComponent(loserId)}/merge`, {
+      method: 'POST',
+      body: JSON.stringify({ into: keeperId }),
+    });
+    HOLDERS = out.holders;
+    FLEET = out.fleet;
+    draw();
+    say(`${out.folded} folded into ${out.keeper.name}`
+      + `${out.moved ? `, and ${out.moved} asset${out.moved === 1 ? '' : 's'} moved across` : ''}. `
+      + 'An admin can put it back from the sharing section.', 'good');
+    refreshLog();
+    window.dispatchEvent(new CustomEvent('assets-changed'));
+    if (session.role === 'admin') { loadFolded(); loadAdded(); }
+    PROBLEMS = await api('/api/problems');
+    problems();
+  }
+
   /* ---------- change log ---------- */
 
   function logView() {
@@ -761,9 +864,101 @@
 
   /* ---------- admin panel ---------- */
 
+  function loadAdded() {
+    const box = $('added');
+    if (!box) return;
+    const rows = HOLDERS.filter((row) => row.createdHere);
+    box.replaceChildren();
+    if (!rows.length) {
+      const none = document.createElement('p');
+      none.className = 'muted';
+      none.textContent = 'Nobody has been added here.';
+      box.appendChild(none);
+      return;
+    }
+    for (const row of rows) {
+      const line = document.createElement('div');
+      line.className = 'folded';
+      const who = document.createElement('span');
+      who.textContent = `${row.name} \u2014 ${row.n} device${row.n === 1 ? '' : 's'}`;
+      line.appendChild(who);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'rowbtn';
+      button.textContent = 'Remove';
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+          const out = await api(`/api/holders/${encodeURIComponent(row.id)}`, { method: 'DELETE' });
+          HOLDERS = out.holders;
+          FLEET = out.fleet;
+          draw();
+          say(`${out.removed} removed.`, 'good');
+          loadAdded();
+          refreshLog();
+        } catch (error) {
+          say(error.message, 'bad');
+          button.disabled = false;
+        }
+      });
+      line.appendChild(button);
+      box.appendChild(line);
+    }
+  }
+
+  async function loadFolded() {
+    const box = $('folded');
+    if (!box) return;
+    let rows = [];
+    try { rows = await api('/api/merged'); } catch (error) { return; }
+    box.replaceChildren();
+    if (!rows.length) {
+      const none = document.createElement('p');
+      none.className = 'muted';
+      none.textContent = 'Nothing has been folded.';
+      box.appendChild(none);
+      return;
+    }
+    for (const row of rows) {
+      const line = document.createElement('div');
+      line.className = 'folded';
+      const who = document.createElement('span');
+      who.textContent = `${row.name} \u2192 ${row.into_name || row.merged_into}`;
+      line.appendChild(who);
+      const when = document.createElement('span');
+      when.className = 'muted';
+      when.textContent = row.updated_by ? `by ${row.updated_by}` : '';
+      line.appendChild(when);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'rowbtn';
+      button.textContent = 'Put it back';
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+          const out = await api(`/api/holders/${encodeURIComponent(row.id)}/unmerge`, { method: 'POST' });
+          HOLDERS = out.holders;
+          FLEET = out.fleet;
+          draw();
+          say(`${row.name} has its own record again. The hardware stayed with `
+            + `${row.into_name || row.merged_into}.`, 'good');
+          loadFolded();
+          refreshLog();
+        } catch (error) {
+          say(error.message, 'bad');
+          button.disabled = false;
+        }
+      });
+      line.appendChild(button);
+      box.appendChild(line);
+    }
+  }
+
   async function loadAdmin() {
     if (session.role !== 'admin') return;
     $('admin').hidden = false;
+    loadAdded();
+    loadFolded();
 
     const note = $('link-note');
     const [address] = session.addresses || [];

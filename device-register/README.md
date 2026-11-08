@@ -317,6 +317,25 @@ Either way the holder's own row is worked out again from the assets
 themselves, so the laptop and iPad columns on the Holders table can never
 drift from what the Assets table says.
 
+## One person entered twice
+
+Holders come from assignee names typed into the inventory workbook, so one
+person typed two ways is two records with some hardware each. **Possible
+duplicate people** proposes the pairs and says why; you decide.
+
+- **Keep <name>** folds the other record into that one: its hardware moves
+  across, anything only it knew is carried over, and it stops being a holder.
+- **Not the same person** dismisses the pair for good.
+
+Folding, not deleting. The workbook goes on producing both spellings, so a
+deleted record returns at the next import with its hardware attached; a folded
+one does not. Nothing is destroyed, so an admin can put a record back from the
+sharing section — the hardware stays where it was moved to.
+
+**Deleting** works on a record typed into the register by mistake, while it
+holds nothing. Admins see those under *Records added here*. A record that came
+from the workbook cannot be deleted, and the register says why.
+
 ## Adding somebody who joined between workbooks
 
 **Add a person** on the Holders section. They get an id of their own (`N001`

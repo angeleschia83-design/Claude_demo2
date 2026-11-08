@@ -1,6 +1,7 @@
 import './quiet.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
+import { findDuplicates } from './duplicates.mjs';
 
 /* Node's own SQLite, so installing needs no C++ toolchain on the machine
    that runs this. A compiled driver has to match the exact Node version it
@@ -164,6 +165,10 @@ for (const [column, definition] of [
   ['last_working_day', 'TEXT'],
   ['hr_status', 'TEXT'],
   ['overrides', 'TEXT'],
+  /* One person entered twice is folded into one record. The other stays in
+     the table rather than being deleted: the workbook goes on producing
+     both rows, so a deleted one would come back at the next import. */
+  ['merged_into', 'TEXT'],
 ]) {
   const present = handle.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?')
     .get('holders', column);
@@ -205,10 +210,12 @@ const SELECT = `
          laptop_serial AS lap, laptop_model AS lapM,
          ipad_serial AS ipd, ipad_model AS ipdM,
          remarks AS rem, '' AS note, label_source AS src,
-         overrides, updated_at, updated_by
+         overrides, updated_at, updated_by, created_here, merged_into
     FROM holders`;
 
-const allHolders = db.prepare(`${SELECT} ORDER BY name COLLATE NOCASE`);
+/* A record folded into another is not a holder any more; it stays in the
+   table so an import cannot resurrect it, and so it can be put back. */
+const allHolders = db.prepare(`${SELECT} WHERE merged_into IS NULL ORDER BY name COLLATE NOCASE`);
 const oneHolder = db.prepare(`${SELECT} WHERE id = ?`);
 /* The fleet chart is about hardware in people's hands, so it counts only the
    held rows. The asset summary below counts everything. */
@@ -253,7 +260,7 @@ const toRow = (row) => {
   for (const key of changed) {
     merged[key] = key === 'resigned' ? Boolean(carried[key]) : carried[key];
   }
-  return derive({ ...merged, base: derive(base), changed });
+  return derive({ ...merged, base: derive(base), changed, createdHere: Boolean(row.created_here) });
 };
 
 export const listHolders = () => allHolders.all().map(toRow);
@@ -370,7 +377,12 @@ export const countAudit = () => db.prepare('SELECT COUNT(*) AS n FROM audit').ge
    from the rows rather than from a list somebody has to remember to update. */
 export const listProblems = () => {
   const rows = (sql, ...args) => db.prepare(sql).all(...args).map((r) => ({ ...r }));
+  /* Pairs that look like one person twice, with whatever a person has
+     already said is not a duplicate left out. */
+  const settled = new Set(getNote('not_duplicates') || []);
+  const duplicatePeople = findDuplicates(listHolders()).filter((pair) => !settled.has(pair.key));
   return {
+    duplicatePeople,
     duplicates: getNote('duplicate_serials') || [],
     noStatus: rows(
       `SELECT serial, asset_type, model, holder FROM devices

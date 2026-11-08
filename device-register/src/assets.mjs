@@ -403,3 +403,97 @@ export const returnAsset = db.transaction((serial, { actor, status, ticket = nul
   recomputeHolder(previous, actor);
   return { asset: getAsset(asset.serial), returnedBy: previous };
 });
+
+/* ---------- one person entered twice ---------- */
+
+/* Folding, not deleting. The workbook goes on producing both spellings, so
+   a deleted record comes back at the next import with its hardware
+   attached; a folded one stays folded. Nothing is destroyed either, which
+   is what makes it safe to do on a maybe — it can be put back. */
+export const mergeHolders = db.transaction((loserId, keeperId, actor) => {
+  if (loserId === keeperId) return { error: 'Those are the same record.' };
+  const loser = getHolder(loserId);
+  const keeper = getHolder(keeperId);
+  if (!loser || !keeper) return { error: 'One of those records is not in the register.' };
+
+  const at = new Date().toISOString();
+  const mine = listAssets().filter((asset) => text(asset.holder_id) === loser.id
+    || (!text(asset.holder_id) && text(asset.holder) && norm(asset.holder) === norm(loser.name)));
+
+  for (const asset of mine) {
+    const carried = { ...readOverrides(
+      db.prepare('SELECT overrides FROM devices WHERE serial = ?').get(asset.serial).overrides,
+    ) };
+    carried.holder_id = keeper.id;
+    carried.holder = keeper.name;
+    writeOverrides(asset.serial, carried);
+    recordChange({ at, actor, serial: asset.serial, holderId: keeper.id, field: 'assigned to',
+      was: loser.name, now: keeper.name });
+  }
+
+  /* What the folded record knew and the kept one does not. A name is never
+     folded: the kept record's name is the one being kept. */
+  const carry = ['position', 'department', 'unit', 'type', 'note', 'rem'];
+  const patch = {};
+  for (const key of carry) {
+    const theirs = key === 'type' ? loser.type : loser[key];
+    const ours = key === 'type' ? keeper.type : keeper[key];
+    if (!text(theirs) || text(ours)) continue;
+    if (key === 'type' && theirs === 'Unknown') continue;
+    patch[key] = theirs;
+  }
+  if (loser.resigned && !keeper.resigned) patch.resigned = true;
+  if (Object.keys(patch).length) updateHolder(keeper.id, patch, actor);
+
+  db.prepare('UPDATE holders SET merged_into = ?, updated_at = ?, updated_by = ? WHERE id = ?')
+    .run(keeper.id, at, actor, loser.id);
+  recordChange({ at, actor, holderId: loser.id, field: 'folded into',
+    was: loser.name, now: `${keeper.name} (${keeper.id})` });
+
+  recomputeHolder(keeper.id, actor);
+  return { keeper: getHolder(keeper.id), moved: mine.length, folded: loser.name };
+});
+
+export const unmergeHolders = db.transaction((id, actor) => {
+  const row = db.prepare('SELECT id, name, merged_into FROM holders WHERE id = ?').get(id);
+  if (!row) return { error: 'No such record.' };
+  if (!row.merged_into) return { error: 'That record is not folded into another.' };
+  db.prepare('UPDATE holders SET merged_into = NULL WHERE id = ?').run(id);
+  recordChange({ at: new Date().toISOString(), actor, holderId: id, field: 'put back',
+    was: `folded into ${row.merged_into}`, now: 'its own record' });
+  /* Hardware moved by the fold stays where it was moved to; whoever puts a
+     record back decides what it should hold. */
+  return { holder: getHolder(id) };
+});
+
+export const listMerged = () => db.prepare(
+  `SELECT a.id, a.name, a.merged_into, b.name AS into_name, a.updated_at, a.updated_by
+     FROM holders a LEFT JOIN holders b ON b.id = a.merged_into
+    WHERE a.merged_into IS NOT NULL ORDER BY a.name COLLATE NOCASE`,
+).all().map((row) => ({ ...row }));
+
+/* Deleting is for a record somebody typed here by mistake, and only while
+   it holds nothing. Anything from the workbook is folded instead, or the
+   next import simply brings it back. */
+export const deleteHolder = db.transaction((id, actor) => {
+  const row = db.prepare('SELECT id, name, created_here FROM holders WHERE id = ?').get(id);
+  if (!row) return { error: 'No such record.' };
+  if (!row.created_here) {
+    return {
+      error: `${row.name} came from the workbook, so deleting the record here would last until the `
+        + 'next import and no longer. Fold it into the record you are keeping instead.',
+    };
+  }
+  const holding = listAssets().filter((asset) => text(asset.holder_id) === id);
+  if (holding.length) {
+    return {
+      error: `${row.name} still holds ${holding.length} `
+        + `${holding.length === 1 ? 'asset' : 'assets'} (${holding.map((a) => a.serial).join(', ')}). `
+        + 'Take those back first, so the hardware is not lost with the record.',
+    };
+  }
+  db.prepare('DELETE FROM holders WHERE id = ?').run(id);
+  recordChange({ at: new Date().toISOString(), actor, holderId: id, field: 'removed from the register',
+    was: row.name, now: '' });
+  return { removed: row.name };
+});
