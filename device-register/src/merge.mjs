@@ -27,6 +27,20 @@ const KEYS = new Map([
   ['rem', 'rem'], ['note', 'note'],
 ]);
 
+/* The offline copy names an asset's columns the way its own table does. */
+const ASSET_KEYS = new Map([
+  ['type', 'asset_type'], ['asset_type', 'asset_type'],
+  ['model', 'model'], ['status', 'status'],
+  ['age', 'age_years'], ['age_years', 'age_years'],
+  ['host', 'host_name'], ['host_name', 'host_name'],
+  ['rem', 'remarks'], ['remarks', 'remarks'],
+]);
+
+const ASSET_LABELS = new Map([
+  ['asset_type', 'Asset type'], ['model', 'Model'], ['status', 'Status'],
+  ['age_years', 'Age in years'], ['host_name', 'Host name'], ['remarks', 'Remark'],
+]);
+
 const LABELS = new Map([
   ['name', 'Holder'], ['type', 'Type'], ['resigned', 'Resigned'],
   ['position', 'Position'], ['department', 'Department'], ['unit', 'Unit'],
@@ -111,17 +125,42 @@ export function parseChanges(text) {
     entries.push({ id, name, fields, dated: Boolean(entry.now) });
   }
 
+  /* An offline copy from version 4 on also sends corrections to the assets
+     themselves, keyed by serial rather than by person. */
+  const assets = [];
+  for (const entry of Array.isArray(body.assets) ? body.assets : []) {
+    if (!entry || typeof entry !== 'object') continue;
+    const serial = String(entry.serial ?? entry.id ?? '').trim();
+    if (!serial) continue;
+    const now = entry.now && typeof entry.now === 'object' ? entry.now : entry;
+    const was = entry.was && typeof entry.was === 'object' ? entry.was : {};
+    const fields = [];
+    for (const [key, value] of Object.entries(now)) {
+      if (key === 'serial' || key === 'id' || key === 'was' || key === 'now') continue;
+      const field = ASSET_KEYS.get(key);
+      if (!field) continue;
+      fields.push({
+        field,
+        label: ASSET_LABELS.get(field) || field,
+        value: String(value ?? '').trim().slice(0, 300),
+        from: key in was ? String(was[key] ?? '').trim() : null,
+      });
+    }
+    if (fields.length) assets.push({ serial, fields });
+  }
+
   return {
     v: Number(body.v) || 2,
     from: String(body.from ?? '').trim().slice(0, 80),
     asOf: String(body.asOf ?? '').trim().slice(0, 40),
     entries,
+    assets,
   };
 }
 
 /* What applying it would do, judged against the register as it stands.
    Nothing is written here. */
-export function planChanges(parsed, holders) {
+export function planChanges(parsed, holders, inventory = []) {
   const byId = new Map(holders.map((row) => [row.id, row]));
   /* Matched on the name the workbook gave them as well as the name the
      register shows, because either side may have corrected it since. */
@@ -218,6 +257,33 @@ export function planChanges(parsed, holders) {
     }
   }
 
+  /* The asset side, keyed by serial rather than by person. */
+  const bySerial = new Map(inventory.map((asset) => [String(asset.serial).toLowerCase(), asset]));
+  for (const entry of parsed.assets || []) {
+    const asset = bySerial.get(entry.serial.toLowerCase()) || null;
+    for (const change of entry.fields) {
+      const key = `asset:${entry.serial}:${change.field}`;
+      if (!asset) {
+        add({ ...change, key, subject: 'asset', serial: entry.serial, holder: entry.serial,
+              was: '', becomes: change.value, state: 'missing',
+              why: 'No asset with that serial in the register.' });
+        continue;
+      }
+      const now = String(asset[change.field] ?? '');
+      const base = String((asset.base || {})[change.field] ?? '');
+      const same = now === change.value;
+      const moved = change.from !== null ? now !== change.from : now !== base;
+      add({
+        ...change, key, subject: 'asset', serial: asset.serial, holder: asset.serial,
+        was: now, becomes: change.value,
+        state: same ? 'same' : moved ? 'clash' : 'change',
+        why: same || !moved ? '' : change.from !== null
+          ? `They started from "${change.from || '(empty)'}". It has been changed here since.`
+          : 'This register has been changed here too.',
+      });
+    }
+  }
+
   rows.sort((a, b) => String(a.holder).localeCompare(String(b.holder))
     || String(a.label).localeCompare(String(b.label)));
 
@@ -239,14 +305,20 @@ export function planChanges(parsed, holders) {
 export function patchesFor(plan, picked) {
   const wanted = new Set(picked || []);
   const byHolder = new Map();
+  const byAsset = new Map();
   for (const row of plan.rows) {
     if (row.state === 'missing' || row.state === 'same') continue;
     if (!wanted.has(row.key)) continue;
-    const patch = byHolder.get(row.id) || {};
+    const into = row.subject === 'asset' ? byAsset : byHolder;
+    const id = row.subject === 'asset' ? row.serial : row.id;
+    const patch = into.get(id) || {};
     patch[row.field] = row.value;
-    byHolder.set(row.id, patch);
+    into.set(id, patch);
   }
-  return [...byHolder.entries()].map(([id, patch]) => ({ id, patch }));
+  return {
+    holders: [...byHolder.entries()].map(([id, patch]) => ({ id, patch })),
+    assets: [...byAsset.entries()].map(([serial, patch]) => ({ serial, patch })),
+  };
 }
 
 export const mergeFields = [...LABELS.entries()].map(([key, label]) => ({ key, label }));

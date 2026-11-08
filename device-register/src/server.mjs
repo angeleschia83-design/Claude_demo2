@@ -249,7 +249,8 @@ app.post('/api/workbook/discard', requireRole('admin'), (req, res) => {
 /* Somebody outside the office works in the offline HTML copy and sends back
    a block of text. It is read, shown as a list of before-and-afters, and
    only then applied — and only the lines that are ticked. */
-const planFromBody = (req) => planChanges(parseChanges(req.body?.text), listHolders());
+const planFromBody = (req) =>
+  planChanges(parseChanges(req.body?.text), listHolders(), assets.listAssets());
 
 app.post('/api/merge/preview', requireRole('admin', 'editor'), mergeBody, (req, res) => {
   try {
@@ -271,20 +272,33 @@ app.post('/api/merge/apply', requireRole('admin', 'editor'), mergeBody, (req, re
     ? req.body.picked
     : plan.rows.filter((row) => row.state === 'change').map((row) => row.key);
   const patches = patchesFor(plan, picked);
-  if (!patches.length) return res.status(400).json({ error: 'Nothing was ticked, so nothing was merged.' });
+  if (!patches.holders.length && !patches.assets.length) {
+    return res.status(400).json({ error: 'Nothing was ticked, so nothing was merged.' });
+  }
 
   /* The change log names both of them: whoever made the correction, and
      whoever let it in. */
   const actor = `${plan.from || 'an offline copy'}, merged by ${req.session.label}`.slice(0, 120);
   let people = 0;
   let fields = 0;
-  for (const { id, patch } of patches) {
+  for (const { id, patch } of patches.holders) {
     if (!updateHolder(id, patch, actor)) continue;
     people += 1;
     fields += Object.keys(patch).length;
   }
+  let things = 0;
+  for (const { serial, patch } of patches.assets) {
+    try {
+      if (!assets.updateAsset(serial, patch, actor)) continue;
+    } catch (error) {
+      /* A word the register does not know is reported rather than written. */
+      continue;
+    }
+    things += 1;
+    fields += Object.keys(patch).length;
+  }
 
-  res.json({ people, fields, from: plan.from, holders: listHolders(), fleet: listFleet() });
+  res.json({ people, assets: things, fields, from: plan.from, holders: listHolders(), fleet: listFleet() });
 });
 
 /* Only the admin export carries contact details. */

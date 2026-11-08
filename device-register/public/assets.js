@@ -532,6 +532,10 @@
     $(id).addEventListener('input', () => { view[key] = $(id).value; draw(); });
   }
 
+  /* A hand-back can carry asset corrections, so the table is reloaded when
+     one is applied. */
+  window.addEventListener('assets-changed', () => { refresh().catch(() => {}); });
+
   window.addEventListener('register-ready', async () => {
     ({ api, session } = window.register);
     if (!session || !session.role) return;

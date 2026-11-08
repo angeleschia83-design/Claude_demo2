@@ -7,6 +7,35 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
+## 3.1.0 — 8 November 2026
+
+**The shared copies carry the assets too.** The Claude dashboard and the
+offline HTML file showed only the 543 devices in somebody's hands. Both now
+carry the whole inventory — 1,541 serials, spares, accessories, network kit
+and retired hardware included — with the same click-to-edit cells and the same
+lists to pick a status, asset type or model from.
+
+- **The dashboard** gets the lot: corrections, the lists, adding an asset,
+  adding a person, handing hardware out and taking it back, with the same
+  guards and the same ticket rule as the register, and a change log of its
+  own. Everything is kept in the page's own store, so what one person does
+  everyone sees — which is what makes the guards worth having.
+- **The offline file** gets corrections but not assignments. It runs from a
+  file with nobody else connected, so two readers could hand the same laptop
+  to two people and neither would know. Assigning stays where everybody sees
+  the same thing at once.
+- **Corrections to assets come back with the rest.** The hand-back now carries
+  them, keyed by serial, and the register reads them, shows them as
+  before-and-afters beside the holder changes, and applies the ticked ones.
+
+### Fixed
+
+- Quiet buttons — *Export CSV*, *Export Excel* — were white on white in light
+  mode on the shared pages. A theme rule for the solid button was more
+  specific than the quiet one and took its colour.
+- A hidden form laid out with flex showed anyway, because the layout rule
+  outranked the browser's own `[hidden]`.
+
 ## 3.0.0 — 8 November 2026
 
 **The register becomes the tracker, rather than a view of a spreadsheet.**

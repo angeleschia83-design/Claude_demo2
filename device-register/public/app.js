@@ -687,10 +687,15 @@
       $('merge-result').hidden = true;
       $('merge-text').value = '';
       PLAN = null;
-      mergeSay(`Applied ${out.fields} change${out.fields === 1 ? '' : 's'} across `
-        + `${out.people} ${out.people === 1 ? 'person' : 'people'}`
+      const across = [
+        out.people ? `${out.people} ${out.people === 1 ? 'person' : 'people'}` : '',
+        out.assets ? `${out.assets} asset${out.assets === 1 ? '' : 's'}` : '',
+      ].filter(Boolean).join(' and ');
+      mergeSay(`Applied ${out.fields} change${out.fields === 1 ? '' : 's'}`
+        + `${across ? ` across ${across}` : ''}`
         + `${out.from ? `, from ${out.from}` : ''}. Each one is in the change log.`, 'good');
       refreshLog();
+      window.dispatchEvent(new CustomEvent('assets-changed'));
     } catch (e) {
       mergeSay(e.message, 'bad');
     } finally {

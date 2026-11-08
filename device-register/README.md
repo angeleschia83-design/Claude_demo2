@@ -344,6 +344,10 @@ Each line is one of four things:
 | **already done** | The register already says what they say. |
 | **naming nobody here** | No holder of that name — or their copy has a different person under that record, which means it is an old export. |
 
+A hand-back carries corrections to the **assets** as well as to people —
+status, model, asset type, age, host name and remark, keyed by serial. They
+appear in the same list, judged the same way.
+
 Applied changes go through the same path as a correction typed into the page,
 so each one is in the change log, under both names: whoever made it and
 whoever let it in. Applying the same file twice changes nothing the second
