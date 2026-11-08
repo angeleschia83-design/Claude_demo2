@@ -554,6 +554,137 @@
     $('problems-card').hidden = blocks.length === 0;
   }
 
+  /* ---------- changes handed back from the offline copy ---------- */
+
+  let PLAN = null;
+
+  const mergeSay = (text, state) => {
+    const el = $('merge-line');
+    el.textContent = text;
+    if (state) el.dataset.state = state; else el.removeAttribute('data-state');
+  };
+
+  const WHY = {
+    change: '',
+    clash: 'Someone here changed this too — tick it only if theirs is the right one.',
+    same: 'Already says this.',
+    missing: 'No holder of that name in the register.',
+  };
+
+  function drawPlan(plan) {
+    PLAN = plan;
+    const body = $('merge-body');
+    body.replaceChildren();
+
+    for (const row of plan.rows) {
+      const tr = document.createElement('tr');
+      tr.dataset.state = row.state;
+
+      const pick = document.createElement('td');
+      if (row.state === 'change' || row.state === 'clash') {
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = row.state === 'change';
+        box.dataset.key = row.key;
+        box.setAttribute('aria-label', `Apply ${row.label} for ${row.holder}`);
+        pick.appendChild(box);
+      }
+      tr.appendChild(pick);
+
+      const now = row.state === 'missing' && !row.was ? '\u2014' : (row.was || '(empty)');
+      for (const text of [row.holder, row.label, now, row.becomes || '(cleared)']) {
+        const td = document.createElement('td');
+        td.textContent = text;
+        tr.appendChild(td);
+      }
+
+      const why = document.createElement('td');
+      why.className = 'why';
+      why.dataset.state = row.state;
+      why.textContent = row.why || WHY[row.state] || '';
+      tr.appendChild(why);
+
+      body.appendChild(tr);
+    }
+
+    const { change, clash, same, missing } = plan.totals;
+    const bits = [];
+    if (change) bits.push(`${change} to apply`);
+    if (clash) bits.push(`${clash} where this register was changed too`);
+    if (same) bits.push(`${same} already done`);
+    if (missing) bits.push(`${missing} naming nobody here`);
+    const who = plan.from ? `From ${plan.from}` : 'From an offline copy';
+    const when = plan.asOf ? `, working from the copy dated ${plan.asOf}` : '';
+    mergeSay(bits.length ? `${who}${when}: ${bits.join(', ')}.` : `${who}${when}: nothing to change.`);
+
+    $('merge-result').hidden = plan.rows.length === 0;
+    $('merge-all').checked = change > 0 && clash === 0;
+    $('merge-apply').disabled = change + clash === 0;
+  }
+
+  const picked = () => [...document.querySelectorAll('#merge-body input[type="checkbox"]:checked')]
+    .map((box) => box.dataset.key);
+
+  async function mergeCheck() {
+    const text = $('merge-text').value.trim();
+    if (!text) { mergeSay('Paste what they sent you first.', 'bad'); return; }
+    mergeSay('Reading it…');
+    try {
+      drawPlan(await api('/api/merge/preview', { method: 'POST', body: JSON.stringify({ text }) }));
+    } catch (e) {
+      $('merge-result').hidden = true;
+      mergeSay(e.message, 'bad');
+    }
+  }
+
+  $('merge-check').addEventListener('click', mergeCheck);
+  $('merge-pick').addEventListener('click', () => $('merge-file').click());
+  $('merge-file').addEventListener('change', async (event) => {
+    const [file] = event.target.files || [];
+    if (!file) return;
+    $('merge-text').value = await file.text();
+    event.target.value = '';
+    mergeCheck();
+  });
+  $('merge-clear').addEventListener('click', () => {
+    $('merge-text').value = '';
+    $('merge-result').hidden = true;
+    PLAN = null;
+    mergeSay('\u00a0');
+  });
+  $('merge-all').addEventListener('change', (event) => {
+    for (const box of document.querySelectorAll('#merge-body input[type="checkbox"]')) {
+      box.checked = event.target.checked;
+    }
+  });
+
+  $('merge-apply').addEventListener('click', async () => {
+    const keys = picked();
+    if (!keys.length) { mergeSay('Nothing is ticked.', 'bad'); return; }
+    $('merge-apply').disabled = true;
+    mergeSay('Applying…');
+    try {
+      const out = await api('/api/merge/apply', {
+        method: 'POST',
+        body: JSON.stringify({ text: $('merge-text').value.trim(), picked: keys }),
+      });
+      HOLDERS = out.holders;
+      FLEET = out.fleet;
+      draw();
+      $('merge-result').hidden = true;
+      $('merge-text').value = '';
+      PLAN = null;
+      mergeSay(`Applied ${out.fields} change${out.fields === 1 ? '' : 's'} across `
+        + `${out.people} ${out.people === 1 ? 'person' : 'people'}`
+        + `${out.from ? `, from ${out.from}` : ''}. Each one is in the change log.`, 'good');
+      refreshLog();
+    } catch (e) {
+      mergeSay(e.message, 'bad');
+    } finally {
+      $('merge-apply').disabled = false;
+    }
+  });
+
   /* ---------- change log ---------- */
 
   function logView() {
@@ -596,6 +727,14 @@
         + (LOG.total > LOG.entries.length ? ` of ${nf.format(LOG.total)} in all, newest first.` : ', newest first.');
     $('log-note').textContent = 'Every correction anyone makes, with who made it. '
       + 'A link shows up under the name you gave it.';
+  }
+
+  /* After a merge the log has new lines in it; this pulls them in without
+     a reload, and quietly does nothing for a role that cannot see the log. */
+  function refreshLog() {
+    if (!canEdit()) return;
+    api('/api/audit?limit=1000').then((log) => { LOG = log; logView(); }).catch(() => {});
+    api('/api/problems').then((found) => { PROBLEMS = found; problems(); }).catch(() => {});
   }
 
   $('log-q').addEventListener('input', logView);
@@ -753,6 +892,7 @@
          things; a viewer link gets neither. */
       if (canEdit()) {
         $('log-card').hidden = false;
+        $('merge-card').hidden = false;
         Promise.all([api('/api/audit?limit=1000'), api('/api/problems')])
           .then(([log, found]) => { LOG = log; PROBLEMS = found; logView(); problems(); })
           .catch(() => { $('log-card').hidden = true; });

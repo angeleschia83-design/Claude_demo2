@@ -23,6 +23,7 @@ const { db, listHolders, getHolder, listFleet, listDevices, updateHolder, listAu
         editableFields, listSummary, listProblems, countAudit } = await import('./db.mjs');
 const { sessions, requireRole, makeSession, checkAdminPassword, cookieName, cookieOptions, newToken } =
   await import('./auth.mjs');
+const { parseChanges, planChanges, patchesFor } = await import('./merge.mjs');
 
 const app = express();
 app.disable('x-powered-by');
@@ -119,6 +120,52 @@ app.patch('/api/holders/:id', requireRole('admin', 'editor'), (req, res) => {
   const row = updateHolder(req.params.id, patch, req.session.label);
   if (!row) return res.status(404).json({ error: 'No such holder.' });
   res.json(row);
+});
+
+/* ---------- changes handed back from the offline copy ---------- */
+
+/* Somebody outside the office works in the offline HTML copy and sends back
+   a block of text. It is read, shown as a list of before-and-afters, and
+   only then applied — and only the lines that are ticked. A paste can be
+   long, so these two routes take a larger body than the rest. */
+const mergeBody = express.json({ limit: '2mb' });
+
+const planFromBody = (req) => planChanges(parseChanges(req.body?.text), listHolders());
+
+app.post('/api/merge/preview', requireRole('admin', 'editor'), mergeBody, (req, res) => {
+  try {
+    res.json(planFromBody(req));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/merge/apply', requireRole('admin', 'editor'), mergeBody, (req, res) => {
+  let plan;
+  try {
+    plan = planFromBody(req);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  const picked = Array.isArray(req.body?.picked)
+    ? req.body.picked
+    : plan.rows.filter((row) => row.state === 'change').map((row) => row.key);
+  const patches = patchesFor(plan, picked);
+  if (!patches.length) return res.status(400).json({ error: 'Nothing was ticked, so nothing was merged.' });
+
+  /* The change log names both of them: whoever made the correction, and
+     whoever let it in. */
+  const actor = `${plan.from || 'an offline copy'}, merged by ${req.session.label}`.slice(0, 120);
+  let people = 0;
+  let fields = 0;
+  for (const { id, patch } of patches) {
+    if (!updateHolder(id, patch, actor)) continue;
+    people += 1;
+    fields += Object.keys(patch).length;
+  }
+
+  res.json({ people, fields, from: plan.from, holders: listHolders(), fleet: listFleet() });
 });
 
 /* Only the admin export carries contact details. */

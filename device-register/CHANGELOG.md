@@ -7,6 +7,32 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
+## 2.3.0 — 8 November 2026
+
+**Corrections made in the offline copy can be merged back in.** Until now the
+offline HTML file was a one-way street: whoever you sent it to could correct
+it, but getting those corrections into the register meant retyping them. They
+now hand their changes back as a file (or pasted text), and the register reads
+it, shows every change as a before-and-after, and applies only the lines you
+tick. Each one lands in the change log under both names — whoever made the
+correction and whoever let it in.
+
+- **Three-way, so a correction is never confused with a disagreement.** Their
+  copy now records what each change started from as well as what it was made
+  into. If the register still holds what they started from, the change is
+  clean and ticked by default. If it has moved since, two people edited the
+  same field: that line is shown with both readings and left unticked for a
+  person to decide.
+- **A wrong record cannot be applied quietly.** Their copy carries the name
+  the workbook gave each holder. If that does not match the name against the
+  same record here — an older export, usually — nothing is applied on the
+  record number alone.
+- **Email damage is expected rather than fatal.** The block is read back
+  through forwarding marks and line wrapping. A file is offered alongside the
+  copy button because it cannot break at all.
+- The offline file and the shared copy are now built from one source, so a
+  fix lands in both.
+
 ## 2.2.0 — 8 November 2026
 
 **An export no longer depends on what is filtered.** The dashboard and the

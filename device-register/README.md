@@ -249,6 +249,36 @@ filtered on screen. The Excel file adds a "Filtered view" sheet when a filter
 is on, so the narrowed list is there too without the full one being lost. Only
 the admin export includes network IDs and email addresses.
 
+## Changes from a colleague
+
+The offline HTML copy of this register runs from a file, with no connection to
+anything. Whoever you send it to corrects it in their own browser and hands the
+result back — **Save them as a file** gives them a small `.txt` to attach, and
+**Copy my changes** gives them the same thing to paste into an email.
+
+In the register, admins and editor links get a **Changes from a colleague**
+section. Drop the file in, or paste the message, and press *See what it would
+change*. Nothing is written yet: every change is listed as a before-and-after,
+and you tick what to apply.
+
+Each line is one of four things:
+
+| | What it means |
+| --- | --- |
+| **to apply** | The register still holds what their copy started from. Ticked for you. |
+| **changed here too** | Somebody corrected the same field here since their copy was made. Both readings are shown and the line is left unticked, because a person has to decide. |
+| **already done** | The register already says what they say. |
+| **naming nobody here** | No holder of that name — or their copy has a different person under that record, which means it is an old export. |
+
+Applied changes go through the same path as a correction typed into the page,
+so each one is in the change log, under both names: whoever made it and
+whoever let it in. Applying the same file twice changes nothing the second
+time.
+
+A long block can be damaged in transit — email wraps lines and adds `>` to
+forwarded ones — and the register reads through both. The file cannot be
+damaged that way, so prefer it for anything more than a handful of changes.
+
 ## The change log
 
 Every correction, with who made it, when, and what the value was before. Admins

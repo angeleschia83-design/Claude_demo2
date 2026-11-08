@@ -141,6 +141,38 @@
     <div class="cols" id="problems"></div>
   </section>
 
+  <section class="card" id="merge-card" aria-label="Changes from a colleague" hidden>
+    <h2>Changes from a colleague</h2>
+    <p class="muted">Whoever you sent the offline copy to can hand their corrections back as a block of
+      text or as a file. Drop it in here and you are shown exactly what it would change, line by line,
+      before anything is applied. Nothing is written until you tick it.</p>
+    <label class="field block"><span>What they sent you</span>
+      <textarea class="txt" id="merge-text" rows="4"
+        placeholder="Paste their whole message, including the long line after &quot;For IT to merge&quot;…"></textarea>
+    </label>
+    <div class="controls">
+      <button type="button" class="btn" id="merge-check">See what it would change</button>
+      <button type="button" class="btn btn-quiet btn-small" id="merge-pick">Open their file instead</button>
+      <input id="merge-file" type="file" accept=".txt,.json,text/plain,application/json" hidden>
+      <button type="button" class="btn btn-quiet btn-small" id="merge-clear">Clear</button>
+    </div>
+    <p class="count" id="merge-line">&nbsp;</p>
+    <div id="merge-result" hidden>
+      <div class="scroll" style="max-height: 24rem">
+        <table>
+          <thead><tr>
+            <th><input type="checkbox" id="merge-all" aria-label="Tick every change that can be applied"></th>
+            <th>Holder</th><th>Field</th><th>In the register now</th><th>They say</th><th></th>
+          </tr></thead>
+          <tbody id="merge-body"></tbody>
+        </table>
+      </div>
+      <div class="controls">
+        <button type="button" class="btn" id="merge-apply">Apply the ticked changes</button>
+      </div>
+    </div>
+  </section>
+
   <section class="card" id="log-card" aria-label="Change log" hidden>
     <h2>Change log</h2>
     <p class="muted" id="log-note"></p>
