@@ -723,8 +723,59 @@
     note.className = 'muted';
     note.textContent = 'One person entered twice holds some of their hardware under each name. '
       + 'Keeping one record moves the other\u2019s hardware onto it and folds it away — which an '
-      + 'import cannot undo, unlike deleting.';
+      + 'import cannot undo, unlike deleting. No hardware is ever removed: it all ends up on the '
+      + 'record you keep.';
     card.appendChild(note);
+
+    if (session.role === 'admin') {
+      const all = document.createElement('div');
+      all.className = 'pair-do';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn btn-small';
+      button.textContent = `Fold all ${pairs.length} ${pairs.length === 1 ? 'pair' : 'pairs'}`;
+      const result = document.createElement('div');
+      result.className = 'log';
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        button.textContent = 'Folding\u2026';
+        try {
+          const out = await api('/api/holders/fold-all', { method: 'POST' });
+          HOLDERS = out.holders;
+          FLEET = out.fleet;
+          draw();
+          result.replaceChildren();
+          for (const row of out.report) {
+            const line = document.createElement('div');
+            line.textContent = row.error
+              ? `${row.folded} could not be folded: ${row.error}`
+              : `${row.folded} \u2192 ${row.kept} \u2014 ${row.moved} asset${row.moved === 1 ? '' : 's'} `
+                + `moved, ${row.kept} now holds ${row.now}. ${row.why}`;
+            result.appendChild(line);
+          }
+          say(`${out.folded} ${out.folded === 1 ? 'pair' : 'pairs'} folded. No hardware moved out of `
+            + 'the register — it is all on the records that were kept. Any one of them can be put '
+            + 'back from the sharing section.', 'good');
+          refreshLog();
+          window.dispatchEvent(new CustomEvent('assets-changed'));
+          loadFolded();
+          PROBLEMS = await api('/api/problems');
+          problems();
+          $('problems').appendChild(result);
+        } catch (error) {
+          say(error.message, 'bad');
+          button.disabled = false;
+          button.textContent = `Fold all ${pairs.length} pairs`;
+        }
+      });
+      all.appendChild(button);
+      const why = document.createElement('span');
+      why.className = 'muted';
+      why.textContent = 'Each pair keeps the record HR\u2019s own list spells that way, and says so.';
+      all.appendChild(why);
+      card.append(all);
+      card.appendChild(result);
+    }
 
     for (const pair of pairs.slice(0, 40)) {
       const box = document.createElement('div');

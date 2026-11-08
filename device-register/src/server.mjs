@@ -241,6 +241,17 @@ app.post('/api/holders/:id/merge', requireRole('admin', 'editor'), (req, res) =>
   res.json({ ...out, holders: listHolders(), fleet: listFleet() });
 });
 
+/* Every proposed pair in one go. The register picks which record to keep
+   from how each name matched HR's own list, says so for each one, and each
+   fold can be put back on its own. */
+app.post('/api/holders/fold-all', requireRole('admin'), (req, res) => {
+  const settled = new Set(getNote('not_duplicates') || []);
+  const pairs = listProblems().duplicatePeople.filter((pair) => !settled.has(pair.key));
+  if (!pairs.length) return res.json({ report: [], folded: 0 });
+  const out = assets.foldAll(req.session.label, { pairs });
+  res.json({ ...out, holders: listHolders(), fleet: listFleet() });
+});
+
 app.post('/api/holders/:id/unmerge', requireRole('admin'), (req, res) => {
   const out = assets.unmergeHolders(req.params.id, req.session.label);
   if (out.error) return res.status(400).json(out);

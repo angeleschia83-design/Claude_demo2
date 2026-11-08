@@ -7,6 +7,28 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
+## 3.3.0 — 8 November 2026
+
+**Fold all the pairs at once.** Going through twelve pairs one at a time is
+twelve chances to pick the wrong record. One button does the lot, and says
+which record it kept for each and why.
+
+**It picks the record HR's own list spells that way.** The register already
+records how each name matched HR's employee list when the data was built —
+exactly, by first name, by spelling, or with the name halves swapped. The
+record HR spells exactly that way is the real one; the other is what somebody
+typed into the inventory. Where HR cannot separate them it keeps whoever holds
+more hardware, then the fuller name, then the older record.
+
+On the current workbook that fixes, among others, `Odette` over `Oddette`
+Alvarez and `Mayrizalyn Saragoza` over the surname-first `Saragoza
+Mayrizalyn` — both of which a simpler rule got backwards.
+
+**No hardware leaves the register.** Every asset held by the folded record
+moves onto the one kept: 487 holders become 475, and 543 assets are still out
+with somebody, 998 still in stock. Each fold is listed afterwards and each can
+be put back on its own.
+
 ## 3.2.0 — 8 November 2026
 
 **One person entered twice.** The register's people come from assignee names

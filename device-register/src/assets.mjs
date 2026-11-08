@@ -14,7 +14,7 @@
  * that says the thing is in for repair — each stops the assignment and asks
  * for a ticket number, which is then recorded against the change.
  */
-import { db, readOverrides, recordChange, getHolder, updateHolder } from './db.mjs';
+import { db, readOverrides, recordChange, getHolder, updateHolder, listHolders } from './db.mjs';
 
 /* What a person may correct on an asset. The serial is the asset's identity
    rather than a field, so it is handled on its own. */
@@ -496,4 +496,86 @@ export const deleteHolder = db.transaction((id, actor) => {
   recordChange({ at: new Date().toISOString(), actor, holderId: id, field: 'removed from the register',
     was: row.name, now: '' });
   return { removed: row.name };
+});
+
+/* ---------- folding every pair at once ---------- */
+
+/* Which of the two to keep. The register already knows how each name
+   matched HR's own employee list, and that is the best evidence available:
+   a record HR spells exactly that way is the real spelling, and the other
+   is what somebody typed into the inventory. After that: whoever holds
+   more hardware, then the fuller name, then the older record. */
+const HR_RANK = new Map([
+  ['exact name', 0], ['first name', 1], ['whole name', 2],
+  ['spelling', 3], ['name halves swapped', 4],
+]);
+
+const hrRank = (row) => {
+  const source = text(row.src).toLowerCase();
+  if (!source || source === 'not found') return 9;
+  for (const [phrase, rank] of HR_RANK) {
+    if (source.includes(phrase)) return rank;
+  }
+  return 8;
+};
+
+export const whichToKeep = (a, b) => {
+  const score = (row) => [hrRank(row), -(row.n || 0), -text(row.name).split(/\s+/).length];
+  const sa = score(a);
+  const sb = score(b);
+  for (let i = 0; i < sa.length; i += 1) {
+    if (sa[i] !== sb[i]) return sa[i] < sb[i] ? a : b;
+  }
+  return String(a.id) <= String(b.id) ? a : b;
+};
+
+const keepBecause = (keeper, other) => {
+  if (hrRank(keeper) < hrRank(other)) {
+    return hrRank(keeper) === 0
+      ? 'HR’s list spells it exactly this way.'
+      : `HR’s list is a closer match to this spelling (${text(keeper.src)}).`;
+  }
+  if ((keeper.n || 0) > (other.n || 0)) return 'This record holds more of the hardware.';
+  if (text(keeper.name).split(/\s+/).length > text(other.name).split(/\s+/).length) {
+    return 'This is the fuller name.';
+  }
+  return 'Neither record had anything to choose between them, so the older one was kept.';
+};
+
+/* Every pair, in one go, most certain first. Each fold is the same one a
+   person would do by hand, and each can be put back the same way. */
+export const foldAll = db.transaction((actor, { pairs } = {}) => {
+  const report = [];
+  const moved = new Map();          // a folded id -> the record it went into
+
+  const resolve = (id) => {
+    let at = id;
+    const seen = new Set();
+    while (moved.has(at) && !seen.has(at)) { seen.add(at); at = moved.get(at); }
+    return at;
+  };
+
+  for (const pair of pairs) {
+    const live = listHolders();
+    const first = live.find((row) => row.id === resolve(pair.people[0].id));
+    const second = live.find((row) => row.id === resolve(pair.people[1].id));
+    if (!first || !second || first.id === second.id) continue;
+
+    const keeper = whichToKeep(first, second);
+    const loser = keeper.id === first.id ? second : first;
+    const why = keepBecause(keeper, loser);
+
+    const out = mergeHolders(loser.id, keeper.id, actor);
+    if (out.error) {
+      report.push({ kept: keeper.name, folded: loser.name, error: out.error });
+      continue;
+    }
+    moved.set(loser.id, keeper.id);
+    report.push({
+      kept: keeper.name, keptId: keeper.id, folded: loser.name, foldedId: loser.id,
+      moved: out.moved, now: out.keeper.n, why, rank: pair.rank,
+    });
+  }
+
+  return { report, folded: report.filter((row) => !row.error).length };
 });

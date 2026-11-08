@@ -326,6 +326,14 @@ duplicate people** proposes the pairs and says why; you decide.
 - **Keep <name>** folds the other record into that one: its hardware moves
   across, anything only it knew is carried over, and it stops being a holder.
 - **Not the same person** dismisses the pair for good.
+- **Fold all N pairs** does the lot in one go. For each pair it keeps the
+  record HR's own employee list spells that way — the register remembers how
+  each name matched when the data was built — then whoever holds more
+  hardware, then the fuller name. It lists every decision afterwards, and each
+  one can still be put back on its own.
+
+No hardware leaves the register when a record is folded: it all moves onto the
+record kept.
 
 Folding, not deleting. The workbook goes on producing both spellings, so a
 deleted record returns at the next import with its hardware attached; a folded
