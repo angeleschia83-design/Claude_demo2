@@ -20,7 +20,7 @@ if (fs.existsSync(envFile)) {
 }
 
 const { db, listHolders, getHolder, listFleet, listDevices, updateHolder, listAudit,
-        editableFields, listSummary } = await import('./db.mjs');
+        editableFields, listSummary, listProblems, countAudit } = await import('./db.mjs');
 const { sessions, requireRole, makeSession, checkAdminPassword, cookieName, cookieOptions, newToken } =
   await import('./auth.mjs');
 
@@ -268,7 +268,27 @@ app.post('/api/invites/:token/revoke', requireRole('admin'), (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/audit', requireRole('admin'), (req, res) => res.json(listAudit(300)));
+/* Editors can see the change log too: it is the record of what they and
+   everyone else did, and hiding it from the people making the changes helps
+   nobody. Viewers do not get it. */
+app.get('/api/audit', requireRole('admin', 'editor'), (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 500, 5000);
+  res.json({ entries: listAudit(limit), total: countAudit() });
+});
+
+app.get('/api/audit.csv', requireRole('admin', 'editor'), (req, res) => {
+  const escape = (value) => {
+    const text = String(value ?? '');
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const head = ['When', 'Who', 'Holder', 'Field', 'Was', 'Became'];
+  const body = listAudit(5000).map((e) =>
+    [e.at, e.actor, e.name || e.holder_id, e.field, e.old_value, e.new_value].map(escape).join(','));
+  res.type('text/csv').attachment('change-log.csv');
+  res.send([head.join(','), ...body].join('\r\n'));
+});
+
+app.get('/api/problems', requireRole('admin', 'editor'), (req, res) => res.json(listProblems()));
 
 /* ---------- the page ---------- */
 

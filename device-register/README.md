@@ -242,6 +242,26 @@ Dockerfile              two-stage build, runs as the node user
 compose.yaml            the app, a volume for the database, data/ read-only
 ```
 
+## Exports
+
+Both CSV and Excel, and both always carry **every** holder, whatever is
+filtered on screen. The Excel file adds a "Filtered view" sheet when a filter
+is on, so the narrowed list is there too without the full one being lost. Only
+the admin export includes network IDs and email addresses.
+
+## The change log
+
+Every correction, with who made it, when, and what the value was before. Admins
+and editor links can read and export it; viewer links cannot. Each entry names
+the person by the label on the link you gave them.
+
+## Worth putting right
+
+A section that lists what the inventory cannot be taken at face value on:
+serials listed twice, assets with no status, laptops and iPads with no model,
+statuses used once or twice, holders with no type, holders on neither HR sheet.
+It is counted from the rows, so it keeps itself up to date.
+
 ## The asset summary
 
 The register answers "who holds what". The asset summary answers "what do we

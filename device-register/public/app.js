@@ -33,6 +33,8 @@
   let HOLDERS = [];
   let FLEET = [];
   let SUMMARY = { rows: [], total: 0, duplicates: [] };
+  let LOG = { entries: [], total: 0 };
+  let PROBLEMS = null;
   const view = { q: '', type: '', dev: '', res: '', col: 'name', dir: 1 };
 
   const canEdit = () => session.role === 'admin' || session.role === 'editor';
@@ -471,17 +473,133 @@
     const chosen = rows.filter((r) => r.type === pick.value);
     drawPivot('sum-model-head', 'sum-model-body', chosen, 'model', 'status', `${pick.value} model`);
     drawPivot('sum-age-head', 'sum-age-body', chosen, 'status', 'age', 'Status');
-
-    const dupes = SUMMARY.duplicates || [];
-    $('sum-dupes').textContent = dupes.length
-      ? `${dupes.length} serial numbers appear more than once in the workbook `
-        + `(${dupes.map((d) => d.serial).join(', ')}). A serial is one piece of hardware, so each is `
-        + 'counted once here. Three of them are a laptop recorded as both a spare and assigned to somebody, '
-        + 'which is worth correcting in the workbook.'
-      : '';
   }
 
   $('sum-pick').addEventListener('change', summary);
+
+  /* ---------- worth putting right ---------- */
+
+  function problemBlock(title, note, lines) {
+    const card = document.createElement('div');
+    const h = document.createElement('h2');
+    h.textContent = `${title} (${nf.format(lines.length)})`;
+    const p = document.createElement('p');
+    p.className = 'muted';
+    p.textContent = note;
+    const list = document.createElement('div');
+    list.className = 'log';
+    for (const line of lines.slice(0, 40)) {
+      const row = document.createElement('div');
+      row.textContent = line;
+      list.appendChild(row);
+    }
+    if (lines.length > 40) {
+      const more = document.createElement('div');
+      more.textContent = `\u2026 and ${nf.format(lines.length - 40)} more. The export has them all.`;
+      list.appendChild(more);
+    }
+    card.append(h, p, list);
+    return card;
+  }
+
+  function problems() {
+    if (!PROBLEMS) return;
+    const box = $('problems');
+    box.replaceChildren();
+    const blocks = [];
+
+    if (PROBLEMS.duplicates.length) {
+      blocks.push(problemBlock(
+        'Serial numbers listed twice',
+        'One serial is one piece of hardware, so each is counted once here, taking the assigned record '
+        + 'over the spare one. Worth correcting in the workbook so the two agree.',
+        PROBLEMS.duplicates.map((d) =>
+          `${d.serial} \u2014 ${d.asset_type}, listed as ${d.statuses.join(' and ')}`
+          + (d.holder ? `, assigned to ${d.holder}` : ''))));
+    }
+    if (PROBLEMS.noStatus.length) {
+      blocks.push(problemBlock('Assets with no status', 'Nothing says whether these are in use, spare or retired.',
+        PROBLEMS.noStatus.map((d) => `${d.serial} \u2014 ${d.asset_type || 'no asset type'}`
+          + (d.holder ? `, with ${d.holder}` : ''))));
+    }
+    if (PROBLEMS.noModel.length) {
+      blocks.push(problemBlock('Laptops and iPads with no model', 'They are counted, but under "No model recorded".',
+        PROBLEMS.noModel.map((d) => `${d.serial} \u2014 ${d.asset_type}`
+          + (d.holder ? `, with ${d.holder}` : ''))));
+    }
+    if (PROBLEMS.oddStatus.length) {
+      blocks.push(problemBlock('Statuses used once or twice',
+        'Usually a typo or a different capitalisation of a status that already exists.',
+        PROBLEMS.oddStatus.map((d) => `"${d.status}" \u2014 ${d.n} asset${d.n === 1 ? '' : 's'}`)));
+    }
+    if (PROBLEMS.noType.length) {
+      blocks.push(problemBlock('Holders with no type',
+        'No job title was found for them, so they are neither Sales nor HO. Set one in the register above.',
+        PROBLEMS.noType.map((h) => `${h.name} \u2014 ${h.n} device${h.n === 1 ? '' : 's'}`)));
+    }
+    if (PROBLEMS.offRegister.length) {
+      blocks.push(problemBlock('Holders on neither HR sheet',
+        'They hold hardware but HR lists them as neither active nor resigned. Some are contractors or '
+        + 'shared machines rather than people.',
+        PROBLEMS.offRegister.map((h) => `${h.name} \u2014 ${h.n} device${h.n === 1 ? '' : 's'}`
+          + (h.department ? `, ${h.department}` : ''))));
+    }
+    if (PROBLEMS.noAge) {
+      blocks.push(problemBlock('Assets with no age recorded',
+        'They appear under "No age recorded" rather than being left out of the age tables.',
+        [`${nf.format(PROBLEMS.noAge)} assets have no age in the workbook`]));
+    }
+
+    for (const block of blocks) box.appendChild(block);
+    $('problems-card').hidden = blocks.length === 0;
+  }
+
+  /* ---------- change log ---------- */
+
+  function logView() {
+    const q = $('log-q').value.trim().toLowerCase();
+    const terms = q ? q.split(/\s+/) : [];
+    const match = (e) => terms.every((t) => [e.actor, e.name, e.holder_id, e.field, e.old_value, e.new_value]
+      .join(' ').toLowerCase().includes(t));
+    const list = LOG.entries.filter(match);
+
+    const body = $('log-body');
+    body.replaceChildren();
+    if (!list.length) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 6;
+      td.className = 'empty';
+      td.textContent = LOG.entries.length ? 'Nothing in the log matches that.' : 'Nothing has been changed yet.';
+      tr.appendChild(td);
+      body.appendChild(tr);
+    }
+    for (const e of list.slice(0, 1000)) {
+      const tr = document.createElement('tr');
+      for (const text of [
+        new Date(e.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }),
+        e.actor,
+        e.name || e.holder_id,
+        (FIELDS.find((f) => f.key === e.field) || { label: e.field }).label,
+        e.old_value || '(empty)',
+        e.new_value || '(empty)',
+      ]) {
+        const td = document.createElement('td');
+        td.textContent = text;
+        tr.appendChild(td);
+      }
+      body.appendChild(tr);
+    }
+    $('log-count').textContent = terms.length
+      ? `Showing ${nf.format(list.length)} of ${nf.format(LOG.entries.length)} changes.`
+      : `${nf.format(LOG.entries.length)} change${LOG.entries.length === 1 ? '' : 's'}`
+        + (LOG.total > LOG.entries.length ? ` of ${nf.format(LOG.total)} in all, newest first.` : ', newest first.');
+    $('log-note').textContent = 'Every correction anyone makes, with who made it. '
+      + 'A link shows up under the name you gave it.';
+  }
+
+  $('log-q').addEventListener('input', logView);
+  $('log-export').addEventListener('click', () => { location.href = '/api/audit.csv'; });
 
   /* ---------- admin panel ---------- */
 
@@ -500,7 +618,7 @@
       note.textContent = '';
     }
 
-    const [invites, log] = await Promise.all([api('/api/invites'), api('/api/audit')]);
+    const invites = await api('/api/invites');
 
     const links = $('links');
     links.replaceChildren();
@@ -558,21 +676,6 @@
       links.appendChild(item);
     }
 
-    const box = $('log');
-    box.replaceChildren();
-    if (!log.length) {
-      const p = document.createElement('p');
-      p.className = 'muted';
-      p.textContent = 'Nothing changed yet.';
-      box.appendChild(p);
-    }
-    for (const entry of log.slice(0, 80)) {
-      const line = document.createElement('div');
-      const when = new Date(entry.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
-      line.textContent = `${when} — ${entry.actor} set ${entry.field} on ${entry.name || entry.holder_id}`
-        + ` to ${entry.new_value || '(empty)'}`;
-      box.appendChild(line);
-    }
   }
 
   $('invite-make').addEventListener('click', async () => {
@@ -646,6 +749,14 @@
       SUMMARY = sum;
       draw();
       loadAdmin();
+      /* The log and the data-quality list are for people who can change
+         things; a viewer link gets neither. */
+      if (canEdit()) {
+        $('log-card').hidden = false;
+        Promise.all([api('/api/audit?limit=1000'), api('/api/problems')])
+          .then(([log, found]) => { LOG = log; PROBLEMS = found; logView(); problems(); })
+          .catch(() => { $('log-card').hidden = true; });
+      }
     } catch (e) {
       $('rows').replaceChildren();
       $('count').textContent = `The register did not load: ${e.message}`;

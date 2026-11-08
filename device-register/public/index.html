@@ -132,7 +132,31 @@
       <table id="sum-age"><thead><tr id="sum-age-head"></tr></thead><tbody id="sum-age-body"></tbody></table>
     </div>
 
-    <p class="muted" id="sum-dupes"></p>
+  </section>
+
+  <section class="card" id="problems-card" aria-label="Worth putting right" hidden>
+    <h2>Worth putting right</h2>
+    <p class="muted">Everything in the inventory that cannot be taken at face value. Counted from the
+      rows, so the list keeps itself up to date.</p>
+    <div class="cols" id="problems"></div>
+  </section>
+
+  <section class="card" id="log-card" aria-label="Change log" hidden>
+    <h2>Change log</h2>
+    <p class="muted" id="log-note"></p>
+    <div class="controls">
+      <label class="field"><span>Search the log</span>
+        <input class="txt" id="log-q" type="search" placeholder="Name, field, who made it…" aria-label="Search the change log">
+      </label>
+      <button type="button" class="btn btn-quiet btn-small" id="log-export">Export the log</button>
+    </div>
+    <p class="count" id="log-count">&nbsp;</p>
+    <div class="scroll" style="max-height: 26rem">
+      <table>
+        <thead><tr><th>When</th><th>Who</th><th>Holder</th><th>Field</th><th>Was</th><th>Became</th></tr></thead>
+        <tbody id="log-body"></tbody>
+      </table>
+    </div>
   </section>
 
   <section class="card admin" id="admin" aria-label="Sharing and history" hidden>
@@ -153,8 +177,6 @@
     </div>
     <div class="links" id="links"></div>
 
-    <h2>Recent changes</h2>
-    <div class="log" id="log"></div>
   </section>
 
   <section class="card" aria-label="How this works">

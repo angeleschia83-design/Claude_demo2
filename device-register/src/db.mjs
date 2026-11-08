@@ -309,4 +309,35 @@ export const listAudit = (limit = 200) =>
   db.prepare(
     `SELECT a.*, h.name FROM audit a LEFT JOIN holders h ON h.id = a.holder_id
       ORDER BY a.id DESC LIMIT ?`,
-  ).all(limit);
+  ).all(limit).map((row) => ({ ...row }));
+
+export const countAudit = () => db.prepare('SELECT COUNT(*) AS n FROM audit').get().n;
+
+/* Everything in the inventory that cannot be taken at face value, counted
+   from the rows rather than from a list somebody has to remember to update. */
+export const listProblems = () => {
+  const rows = (sql, ...args) => db.prepare(sql).all(...args).map((r) => ({ ...r }));
+  return {
+    duplicates: getNote('duplicate_serials') || [],
+    noStatus: rows(
+      `SELECT serial, asset_type, model, holder FROM devices
+        WHERE status IS NULL OR status = '' ORDER BY asset_type, serial`),
+    noModel: rows(
+      `SELECT serial, asset_type, status, holder FROM devices
+        WHERE (model IS NULL OR model = '')
+          AND asset_type IN ('Laptop', 'Imac', 'iPad') ORDER BY serial`),
+    oddStatus: rows(
+      `SELECT status, COUNT(*) AS n FROM devices
+        WHERE status IS NOT NULL AND status <> ''
+        GROUP BY status HAVING n <= 2 ORDER BY n`),
+    noAge: db.prepare(
+      `SELECT COUNT(*) AS n FROM devices WHERE age_years IS NULL OR age_years = ''`).get().n,
+    offRegister: rows(
+      `SELECT id, name, department, devices_held AS n FROM holders
+        WHERE hr_status = 'not on list' ORDER BY name COLLATE NOCASE`),
+    noType: rows(
+      `SELECT id, name, devices_held AS n FROM holders
+        WHERE COALESCE(json_extract(overrides, '$.type'), base_type) = 'Unknown'
+        ORDER BY name COLLATE NOCASE`),
+  };
+};

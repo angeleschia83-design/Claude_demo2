@@ -7,6 +7,25 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
+## 2.2.0 — 8 November 2026
+
+**An export no longer depends on what is filtered.** The dashboard and the
+shared copy exported only the rows on screen, so filtering to Sales and
+pressing Export quietly left out the 33 holders with no type, with nothing in
+the file to say so. Both now export every holder, and put the filtered rows on
+a second sheet when a filter is on. The app's own exports always carried
+everything and are unchanged.
+
+**A change log anyone who can edit can read.** It was admin-only and buried
+under the sharing panel. It is now a section of its own, searchable, showing
+up to a thousand entries, with its own CSV export. Editors see it, because it
+is the record of what they did; viewers do not.
+
+**"Worth putting right"**, counted from the rows rather than from a list
+somebody maintains: serials listed twice, assets with no status, laptops and
+iPads with no model, statuses used only once or twice (usually a typo),
+holders with no type, holders on neither HR sheet, and assets with no age.
+
 ## 2.1.0 — 6 November 2026
 
 **The asset summary moves into the app**, so the spreadsheet tracker no longer
