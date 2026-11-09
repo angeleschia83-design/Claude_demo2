@@ -7,6 +7,28 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
+## 3.5.0 — 9 November 2026
+
+**An asset can be taken off the register**, the same way a duplicate person
+can be folded away — and for the same reason. Deleting a workbook row here
+would last until the next import and no longer, so **Take it off** keeps the
+row, keeps its history, and keeps it off the register through every later
+import. An admin can put it back.
+
+Deleting outright is still there for an asset **added here by mistake**, which
+has no workbook row to come back from.
+
+Either way the asset has to be in nobody's hands first:
+
+> PF2SQEGH is still with Siegfred Bactung. Take it back first, so who had it
+> is not lost along with the record.
+
+An asset off the register is out of the counts, the asset summary and the
+data-quality list, and is listed under the table with what it was taken off
+for. Verified across a full `--apply-all` re-import: it stays off.
+
+The dashboard does all of this too.
+
 ## 3.4.0 — 9 November 2026
 
 **Adding a new joiner is where you would look for it.** The button existed

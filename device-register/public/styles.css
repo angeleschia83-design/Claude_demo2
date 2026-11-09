@@ -222,3 +222,8 @@ dialog h3 { margin: 0 0 12px; font-size: 15px; }
 .folded { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px;
   padding: 4px 0; border-bottom: 1px solid var(--line); }
 .folded:last-child { border-bottom: 0; }
+
+#gone-box { margin: 10px 0; font-size: 13px; }
+#gone-box summary { cursor: pointer; color: var(--fg-dim); }
+#gone-box summary:hover { color: var(--fg); }
+#gone .folded { font-family: var(--font-mono); font-size: 12px; }

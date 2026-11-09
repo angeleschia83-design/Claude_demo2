@@ -280,6 +280,20 @@ piece of hardware.
 **Add an asset** is for hardware that arrives between workbooks. It is kept
 when the next workbook is imported, which would otherwise not know about it.
 
+## Taking an asset off the register
+
+**Take it off** on any asset row that is in nobody's hands. It keeps the row
+and its history, drops it out of every count and list, and stays off through
+later imports — which is why it is offered instead of deleting: a deleted
+workbook row comes back at the next import. Admins put one back from the list
+under the table.
+
+**Delete it for good** appears only for an asset added here by mistake, which
+has no workbook row to come back from.
+
+Either way the asset must be in nobody's hands first, so the record of who had
+it is not lost along with it.
+
 ## The words people pick from
 
 Status, asset type and model are lists, seeded from whatever the workbook

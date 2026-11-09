@@ -202,6 +202,27 @@ app.post('/api/assets/:serial/return', requireRole('admin', 'editor'), (req, res
   } catch (error) { assetError(res, error); }
 });
 
+/* An asset that should not be on the register. Editors can take one off;
+   deleting outright is an admin's, and only for something typed in here. */
+app.post('/api/assets/:serial/remove', requireRole('admin', 'editor'), (req, res) => {
+  const out = assets.removeAsset(req.params.serial, {
+    actor: req.session.label,
+    reason: req.body?.reason,
+    hard: Boolean(req.body?.hard) && req.session.role === 'admin',
+  });
+  if (out.error) return res.status(400).json(out);
+  res.json({ ...out, holders: listHolders(), fleet: listFleet() });
+});
+
+app.post('/api/assets/:serial/restore', requireRole('admin'), (req, res) => {
+  const out = assets.restoreAsset(req.params.serial, req.session.label);
+  if (out.error) return res.status(400).json(out);
+  res.json(out);
+});
+
+app.get('/api/assets/removed', requireRole('admin', 'editor'), (req, res) =>
+  res.json(assets.listRemovedAssets()));
+
 /* ---------- somebody who joined between workbooks ---------- */
 
 app.post('/api/holders', requireRole('admin', 'editor'), (req, res) => {

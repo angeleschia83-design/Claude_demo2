@@ -118,7 +118,8 @@ export const setValueFlag = db.transaction((kind, value, { assignable, retired }
 const ASSET_SELECT = `
   SELECT serial, asset_type, kind, model, status, holder_id, holder, assigned_on,
          age_years, os, host_name, specs, remarks, overrides,
-         created_here, created_at, created_by
+         created_here, created_at, created_by,
+         removed_at, removed_by, removed_reason
     FROM devices`;
 
 const toAsset = (row) => {
@@ -132,7 +133,15 @@ const toAsset = (row) => {
   return { ...merged, base, changed: keys, createdHere: Boolean(row.created_here) };
 };
 
-export const listAssets = () => db.prepare(`${ASSET_SELECT} ORDER BY serial COLLATE NOCASE`).all().map(toAsset);
+export const listAssets = () => db.prepare(
+  `${ASSET_SELECT} WHERE removed_at IS NULL ORDER BY serial COLLATE NOCASE`,
+).all().map(toAsset);
+
+/* Assets taken off the register, so they can be put back. */
+export const listRemovedAssets = () => db.prepare(
+  `${ASSET_SELECT} WHERE removed_at IS NOT NULL ORDER BY removed_at DESC`,
+).all().map((row) => ({ ...toAsset(row), removed_at: row.removed_at, removed_by: row.removed_by,
+  removed_reason: row.removed_reason }));
 export const getAsset = (serial) => {
   const row = db.prepare(`${ASSET_SELECT} WHERE serial = ? COLLATE NOCASE`).get(serial);
   return row ? toAsset(row) : null;
@@ -578,4 +587,58 @@ export const foldAll = db.transaction((actor, { pairs } = {}) => {
   }
 
   return { report, folded: report.filter((row) => !row.error).length };
+});
+
+/* ---------- an asset that should not be on the register ---------- */
+
+/* Deleting outright is for something typed in here by mistake. Anything
+   the workbook lists is taken off the register instead and stays off: a
+   deleted row would be back at the next import, hardware and all. Either
+   way it has to be in nobody's hands first, so the record of who had it is
+   not lost with it. */
+export const removeAsset = db.transaction((serial, { actor, reason, hard = false } = {}) => {
+  const asset = getAsset(serial);
+  if (!asset) return { error: 'No asset with that serial.' };
+  if (text(asset.holder_id) || text(asset.holder)) {
+    return {
+      error: `${asset.serial} is still with ${asset.holder || 'somebody'}. Take it back first, `
+        + 'so who had it is not lost along with the record.',
+    };
+  }
+
+  const at = new Date().toISOString();
+  const why = text(reason).slice(0, 200);
+
+  /* Something added here has no workbook row to come back from, so it can
+     go for good — and only then. */
+  if (hard) {
+    if (!asset.createdHere) {
+      return {
+        error: `${asset.serial} came from the workbook, so deleting it here would last until the `
+          + 'next import and no longer. Take it off the register instead; that survives an import '
+          + 'and can be undone.',
+      };
+    }
+    db.prepare('DELETE FROM devices WHERE serial = ?').run(asset.serial);
+    recordChange({ at, actor, serial: asset.serial, field: 'deleted from the register',
+      was: [asset.asset_type, asset.model].filter(Boolean).join(' ') || asset.kind, now: why });
+    return { deleted: asset.serial };
+  }
+
+  db.prepare('UPDATE devices SET removed_at = ?, removed_by = ?, removed_reason = ? WHERE serial = ?')
+    .run(at, actor, why, asset.serial);
+  recordChange({ at, actor, serial: asset.serial, field: 'taken off the register',
+    was: asset.status || '(no status)', now: why || 'no reason given' });
+  return { removed: asset.serial, reason: why };
+});
+
+export const restoreAsset = db.transaction((serial, actor) => {
+  const row = db.prepare('SELECT serial, removed_at FROM devices WHERE serial = ?').get(serial);
+  if (!row) return { error: 'No asset with that serial.' };
+  if (!row.removed_at) return { error: 'That asset is on the register already.' };
+  db.prepare('UPDATE devices SET removed_at = NULL, removed_by = NULL, removed_reason = NULL WHERE serial = ?')
+    .run(serial);
+  recordChange({ at: new Date().toISOString(), actor, serial, field: 'put back on the register',
+    was: 'off the register', now: 'on it' });
+  return { asset: getAsset(serial) };
 });

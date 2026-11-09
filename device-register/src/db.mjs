@@ -151,6 +151,12 @@ for (const [column, definition] of [
   ['created_here', 'INTEGER NOT NULL DEFAULT 0'],
   ['created_at', 'TEXT'],
   ['created_by', 'TEXT'],
+  /* An asset taken off the register. Kept rather than deleted, for the same
+     reason a folded holder is: the workbook goes on listing it, so a row
+     deleted here would come back at the next import. */
+  ['removed_at', 'TEXT'],
+  ['removed_by', 'TEXT'],
+  ['removed_reason', 'TEXT'],
 ]) {
   const present = handle.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?')
     .get('devices', column);
@@ -222,7 +228,7 @@ const oneHolder = db.prepare(`${SELECT} WHERE id = ?`);
 const fleetRows = db.prepare(
   `SELECT CASE WHEN model = '' THEN 'Model not recorded' ELSE model END AS model,
           kind, COUNT(*) AS n
-     FROM devices WHERE held = 1
+     FROM devices WHERE held = 1 AND removed_at IS NULL
     GROUP BY model, kind ORDER BY n DESC`,
 );
 
@@ -341,6 +347,7 @@ const summaryRows = db.prepare(`
               ELSE 'Over 2 years' END AS age,
          COUNT(*) AS n
     FROM devices
+   WHERE removed_at IS NULL
    GROUP BY type, status, model, age`);
 
 export const setNote = (key, value) =>
@@ -359,7 +366,7 @@ export const getNote = (key) => {
 
 export const listSummary = () => ({
   rows: summaryRows.all().map((row) => ({ ...row })),
-  total: db.prepare('SELECT COUNT(*) AS n FROM devices').get().n,
+  total: db.prepare('SELECT COUNT(*) AS n FROM devices WHERE removed_at IS NULL').get().n,
   /* A serial is one piece of hardware, so a serial listed twice is stored
      once. Saying how many were collapsed keeps that honest. */
   duplicates: getNote('duplicate_serials') || [],
@@ -386,25 +393,27 @@ export const listProblems = () => {
     duplicates: getNote('duplicate_serials') || [],
     noStatus: rows(
       `SELECT serial, asset_type, model, holder FROM devices
-        WHERE status IS NULL OR status = '' ORDER BY asset_type, serial`),
+        WHERE removed_at IS NULL AND (status IS NULL OR status = '')
+        ORDER BY asset_type, serial`),
     noModel: rows(
       `SELECT serial, asset_type, status, holder FROM devices
-        WHERE (model IS NULL OR model = '')
+        WHERE removed_at IS NULL AND (model IS NULL OR model = '')
           AND asset_type IN ('Laptop', 'Imac', 'iPad') ORDER BY serial`),
     oddStatus: rows(
       `SELECT status, COUNT(*) AS n FROM devices
-        WHERE status IS NOT NULL AND status <> ''
+        WHERE removed_at IS NULL AND status IS NOT NULL AND status <> ''
         GROUP BY status HAVING n <= 2 ORDER BY n`),
     /* Marked as out with somebody, with nobody named. The workbook has 228
        of these: accessories and monitors assigned to a floor or a room
        rather than a person, which is fine until somebody has to find one. */
     assignedToNobody: rows(
       `SELECT serial, asset_type, model, status FROM devices
-        WHERE status LIKE '%ssigned%'
+        WHERE removed_at IS NULL AND status LIKE '%ssigned%'
           AND COALESCE(json_extract(overrides, '$.holder_id'), holder_id, '') = ''
         ORDER BY asset_type, serial`),
     noAge: db.prepare(
-      `SELECT COUNT(*) AS n FROM devices WHERE age_years IS NULL OR age_years = ''`).get().n,
+      `SELECT COUNT(*) AS n FROM devices
+        WHERE removed_at IS NULL AND (age_years IS NULL OR age_years = '')`).get().n,
     offRegister: rows(
       `SELECT id, name, department, devices_held AS n FROM holders
         WHERE hr_status = 'not on list' ORDER BY name COLLATE NOCASE`),

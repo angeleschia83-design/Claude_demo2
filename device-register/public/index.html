@@ -184,6 +184,10 @@
     </form>
 
     <p class="count" id="a-count">&nbsp;</p>
+    <details id="gone-box">
+      <summary>Assets taken off the register</summary>
+      <div id="gone"></div>
+    </details>
     <div class="scroll" style="max-height: 32rem">
       <table>
         <thead><tr id="a-head"></tr></thead>
@@ -333,6 +337,25 @@
     <div class="controls">
       <button type="button" class="btn" id="assign-go">Assign it</button>
       <button type="button" class="btn btn-quiet" id="assign-cancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="remove-dlg" aria-label="Take an asset off the register">
+  <form method="dialog">
+    <h3 id="remove-title">Take it off the register</h3>
+    <p class="muted" id="remove-note"></p>
+    <label class="field block"><span>Why</span>
+      <input class="txt" id="remove-why" maxlength="200" placeholder="Written off after the flood, say">
+    </label>
+    <label class="tick" id="remove-hard-row" hidden>
+      <input type="checkbox" id="remove-hard">
+      Delete it for good instead — it was typed in here by mistake
+    </label>
+    <p class="count" id="remove-line">&nbsp;</p>
+    <div class="controls">
+      <button type="button" class="btn" id="remove-go">Take it off</button>
+      <button type="button" class="btn btn-quiet" id="remove-cancel">Cancel</button>
     </div>
   </form>
 </dialog>

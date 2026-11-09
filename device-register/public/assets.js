@@ -173,6 +173,18 @@
         button.textContent = asset.held ? 'Take it back' : 'Hand it out';
         button.addEventListener('click', () => (asset.held ? takeBack(asset) : handOut(asset)));
         act.appendChild(button);
+
+        /* Only once it is in nobody's hands, so who had it is never lost
+           along with the record. */
+        if (!asset.held) {
+          const off = document.createElement('button');
+          off.type = 'button';
+          off.className = 'rowbtn';
+          off.textContent = 'Take it off';
+          off.title = 'Take this asset off the register';
+          off.addEventListener('click', () => openRemove(asset));
+          act.appendChild(off);
+        }
       }
       tr.appendChild(act);
       body.appendChild(tr);
@@ -287,6 +299,86 @@
       say('a-count', `${asset.serial} is back in stock.`, 'good');
     } catch (error) {
       say('a-count', error.message, 'bad');
+    }
+  }
+
+  /* ---------- an asset that should not be here ---------- */
+
+  let removing = null;
+
+  function openRemove(asset) {
+    removing = asset;
+    $('remove-title').textContent = `Take ${asset.serial} off the register`;
+    $('remove-why').value = '';
+    $('remove-hard').checked = false;
+    /* Deleting outright is only ever right for something typed in here:
+       anything the workbook lists comes back at the next import. */
+    const canDelete = asset.createdHere && session.role === 'admin';
+    $('remove-hard-row').hidden = !canDelete;
+    $('remove-note').textContent = canDelete
+      ? 'This asset was added here, so it can either be taken off the register or deleted for good.'
+      : 'It stays in the database and keeps its history, and an admin can put it back. '
+        + 'Deleting it outright would only last until the next import.';
+    say('remove-line', '\u00a0');
+    $('remove-dlg').showModal();
+    $('remove-why').focus();
+  }
+
+  $('remove-cancel').addEventListener('click', () => $('remove-dlg').close());
+  $('remove-go').addEventListener('click', async () => {
+    if (!removing) return;
+    const hard = $('remove-hard').checked;
+    say('remove-line', hard ? 'Deleting\u2026' : 'Taking it off\u2026');
+    try {
+      const out = await api(`/api/assets/${encodeURIComponent(removing.serial)}/remove`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: $('remove-why').value.trim(), hard }),
+      });
+      $('remove-dlg').close();
+      await refresh();
+      $('gone-box').open = true;
+      await window.register.reload();
+      say('a-count', out.deleted
+        ? `${out.deleted} deleted.`
+        : `${out.removed} is off the register. An admin can put it back from the list under the table.`,
+        'good');
+      loadGone();
+    } catch (error) {
+      say('remove-line', error.message, 'bad');
+    }
+  });
+
+  async function loadGone() {
+    const box = $('gone');
+    if (!box) return;
+    let rows = [];
+    try { rows = await api('/api/assets/removed'); } catch (error) { return; }
+    $('gone-box').hidden = rows.length === 0;
+    box.replaceChildren();
+    for (const asset of rows) {
+      const line = document.createElement('div');
+      line.className = 'folded';
+      const what = document.createElement('span');
+      what.textContent = `${asset.serial} \u2014 ${[asset.asset_type, asset.model].filter(Boolean).join(' ')}`
+        + `${asset.removed_reason ? ` \u2014 ${asset.removed_reason}` : ''}`;
+      line.appendChild(what);
+      if (session.role === 'admin') {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'rowbtn';
+        button.textContent = 'Put it back';
+        button.addEventListener('click', async () => {
+          button.disabled = true;
+          try {
+            await api(`/api/assets/${encodeURIComponent(asset.serial)}/restore`, { method: 'POST' });
+            await refresh();
+            say('a-count', `${asset.serial} is back on the register.`, 'good');
+            loadGone();
+          } catch (error) { button.disabled = false; }
+        });
+        line.appendChild(button);
+      }
+      box.appendChild(line);
     }
   }
 
@@ -551,6 +643,7 @@
     buildHead();
     try {
       await refresh();
+      if (canEdit()) loadGone(); else $('gone-box').hidden = true;
     } catch (error) {
       say('a-count', `The assets did not load: ${error.message}`, 'bad');
     }
