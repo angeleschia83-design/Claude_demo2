@@ -33,7 +33,6 @@
         <span class="whoami" id="version" title="Version of the register"></span>
         <button type="button" class="btn btn-quiet btn-small" id="export">Export CSV</button>
         <button type="button" class="btn btn-quiet btn-small" id="export-xlsx">Export Excel</button>
-      <button type="button" class="btn btn-quiet btn-small" id="h-add">Add a person</button>
         <button type="button" class="btn btn-quiet btn-small" id="logout">Sign out</button>
       </div>
     </div>
@@ -97,6 +96,11 @@
           <button type="button" class="chip" data-f="res" data-v="y" aria-pressed="false">Resigned</button>
         </div>
       </div>
+    </div>
+    <div class="controls">
+      <button type="button" class="btn" id="h-add">Add a person</button>
+      <span class="muted">Somebody who joined since the last workbook. They can hold hardware
+        straight away, and the next workbook that knows them joins up with their record.</span>
     </div>
     <p class="count" id="count">&nbsp;</p>
     <div class="scroll">

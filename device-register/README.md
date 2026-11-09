@@ -346,9 +346,16 @@ from the workbook cannot be deleted, and the register says why.
 
 ## Adding somebody who joined between workbooks
 
-**Add a person** on the Holders section. They get an id of their own (`N001`
-and up), they are never removed by an import, and a later workbook that does
-know them updates their row rather than making a second one.
+**Add a person**, under the holders table. They get an id of their own (`N001`
+and up), they are never removed by an import, and they can hold hardware
+straight away — hand it to them from the Assets section.
+
+Searching the holders for somebody who is not there offers the same thing on
+the spot: "Nobody here matches *Rina Mendoza*" with a button to add them under
+that name.
+
+When a later workbook does know them, the two records appear as a duplicate
+pair under *Possible duplicate people* and fold together, hardware and all.
 
 ## Changes from a colleague
 

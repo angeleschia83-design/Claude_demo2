@@ -321,11 +321,17 @@
     }
   });
 
-  $('h-add').addEventListener('click', () => {
-    $('p-name').value = '';
-    say('person-line', ' ');
+  /* Shared, because the holders table offers this too when a search finds
+     nobody — which is the moment somebody usually needs it. */
+  function openPerson(name = '') {
+    $('p-name').value = name;
+    say('person-line', '\u00a0');
     $('person-dlg').showModal();
-  });
+    $('p-name').focus();
+  }
+  window.openPerson = openPerson;
+
+  $('h-add').addEventListener('click', () => openPerson());
   $('person-cancel').addEventListener('click', () => $('person-dlg').close());
   $('person-go').addEventListener('click', async () => {
     const body = {

@@ -7,6 +7,23 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
+## 3.4.0 — 9 November 2026
+
+**Adding a new joiner is where you would look for it.** The button existed
+from 3.0.0, but in the register it sat among the export buttons and in the
+dashboard it sat in the Assets section — neither of which is where you look
+when somebody joins. It is now **under the holders table**, with a line
+saying what it is for.
+
+**And it is offered at the moment you need it.** Searching the holders for
+somebody who is not there now answers "Nobody here matches *Rina Mendoza*" —
+with a button to add them under that name, already filled in.
+
+Nothing else changed: a person added here gets an id of their own, can hold
+hardware straight away, and is never removed by an import. When a later
+workbook does know them, the two records show up as a duplicate pair and fold
+together.
+
 ## 3.3.0 — 8 November 2026
 
 **Fold all the pairs at once.** Going through twelve pairs one at a time is

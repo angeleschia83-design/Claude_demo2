@@ -347,7 +347,20 @@
       const td = document.createElement('td');
       td.colSpan = FIELDS.length;
       td.className = 'empty';
-      td.textContent = 'Nobody matches these filters.';
+      /* Searching for somebody who is not here is exactly the moment you
+         want to add them, so the offer is made where the looking happened. */
+      const typed = view.q.trim();
+      if (typed && canEdit()) {
+        td.textContent = `Nobody here matches \u201c${typed}\u201d. `;
+        const add = document.createElement('button');
+        add.type = 'button';
+        add.className = 'rowbtn';
+        add.textContent = `Add ${typed} as a new person`;
+        add.addEventListener('click', () => openPerson(typed));
+        td.appendChild(add);
+      } else {
+        td.textContent = 'Nobody matches these filters.';
+      }
       tr.appendChild(td);
       frag.appendChild(tr);
     }
