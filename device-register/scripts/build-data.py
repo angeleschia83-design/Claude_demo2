@@ -37,6 +37,18 @@ EMPLOYEES = "MONITORING_EMPLOYEES"
 LAPTOP_TYPES = {"Laptop", "Imac"}
 IPAD_TYPES = {"iPad"}
 ACTIVE = "Active/ Assigned"
+
+
+def status_key(value):
+    """A status with its spacing and case taken out of the question.
+
+    The November workbook writes "Active/Assigned" where every earlier one
+    wrote "Active/ Assigned". Matched literally, that one missing space
+    takes an asset out of the held rows, so the person holding it stops
+    being a holder and the iPad reads as sitting in stock with somebody's
+    name on it. One space.
+    """
+    return re.sub(r"\s*/\s*", "/", str(value or "")).strip().lower()
 SALES_TITLE = "financial advisor"      # the job title that means a field seller
 NULLS = {"", "none", "not found", "n/a", "na", "-", "nan", "tbd"}
 
@@ -106,7 +118,8 @@ def read_devices(book):
             "assigned_on": date_str(row[20]),
             "remarks": clean(row[21]),
             "age_years": round(float(row[5]), 1) if isinstance(row[5], (int, float)) else "",
-            "held": "yes" if (is_device and last and status.startswith(ACTIVE)) else "",
+            "held": "yes" if (is_device and last
+                              and status_key(status).startswith(status_key(ACTIVE))) else "",
         })
     return out
 
@@ -223,6 +236,26 @@ def make_lookup(employees):
 def build(workbook_path, out_dir, employee_list=None):
     book = openpyxl.load_workbook(workbook_path, data_only=True, read_only=True)
     assets = read_devices(book)
+    # The same status spelled two ways counts as two things, so the
+    # commonest spelling wins and the others are written as that. Spellings
+    # that differ by more than spacing and case are left alone: those are
+    # real typos for somebody to fix in the register, not noise to hide.
+    spellings = collections.defaultdict(collections.Counter)
+    for asset in assets:
+        if asset["status"]:
+            spellings[status_key(asset["status"])][asset["status"]] += 1
+    canonical = {key: counter.most_common(1)[0][0] for key, counter in spellings.items()}
+    respelled = collections.Counter()
+    for asset in assets:
+        if not asset["status"]:
+            continue
+        agreed = canonical[status_key(asset["status"])]
+        if agreed != asset["status"]:
+            respelled[f'{asset["status"]!r} -> {agreed!r}'] += 1
+            asset["status"] = agreed
+    for what, n in respelled.most_common():
+        print(f"  {n} asset{'' if n == 1 else 's'} had a status spelled {what}")
+
     devices = [d for d in assets if d["held"] == "yes"]
     lookup = make_lookup(read_employees(book))
 

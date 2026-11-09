@@ -7,6 +7,26 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
+## 4.0.1 — 9 November 2026
+
+**One missing space was about to lose a holder.** This workbook writes
+`Active/Assigned` where every earlier one wrote `Active/ Assigned`, and the
+import matched that text literally to decide whether an asset is in somebody's
+hands. So iPad YXQ44XK934 would have read as sitting in stock with Lorena Mae
+Papa's name on it, and she would not have been a holder at all.
+
+Spacing and case no longer come into it. And where the same status is spelled
+two ways, the spelling the workbook uses most wins, the others are written as
+that, and the import says how many it changed:
+
+```
+1 asset had a status spelled 'Active/Assigned' -> 'Active/ Assigned'
+```
+
+Spellings that differ by more than spacing and case are left alone —
+`retired/decommision` against `Retired/Decommissioned` is a real typo for
+somebody to fix in the register, not noise to paper over.
+
 ## 4.0.0 — 9 November 2026
 
 **A holder's id now means the same person for ever.** It used to be the row's
