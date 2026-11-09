@@ -21,6 +21,7 @@ Usage:
   python3 scripts/build-data.py <asset-workbook.xlsx> [out_dir] [employee-list.xlsx]
 """
 import collections
+import hashlib
 import csv
 import datetime
 import difflib
@@ -241,7 +242,7 @@ def build(workbook_path, out_dir, employee_list=None):
         by_holder.setdefault((norm(device["last"]), norm(device["given"])), []).append(device)
 
     people = []
-    for index, (_, kit) in enumerate(sorted(by_holder.items())):
+    for key, kit in sorted(by_holder.items()):
         last, given = kit[0]["last"], kit[0]["given"]
         employee, source = lookup(last, given)
         laptops = [d for d in kit if d["kind"] == "Laptop"]
@@ -263,7 +264,15 @@ def build(workbook_path, out_dir, employee_list=None):
         else:
             employee_type = "HO"
 
-        holder_id = f"P{index:03d}"
+        # An id has to mean the same person for ever, because every
+        # correction made in the app is filed against it. It used to be the
+        # row's position in this sorted list, which meant that adding one
+        # person to the workbook slid almost every id onto somebody else.
+        # It is derived from the name itself now: same name, same id, no
+        # matter who else arrives or leaves. A person whose name is
+        # respelled gets a new id and shows up as a duplicate pair, which
+        # is the register's own way of joining the two back together.
+        holder_id = "P" + hashlib.sha1("|".join(key).encode("utf-8")).hexdigest()[:8]
         for device in kit:
             device["holder_id"] = holder_id
             device["holder"] = " ".join(f"{given} {last}".split())

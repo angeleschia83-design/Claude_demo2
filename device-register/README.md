@@ -149,6 +149,24 @@ tagged resigned, which is the list to chase hardware with) and **Summary**
 Links are bearer tokens: anyone the URL is forwarded to gets the same access.
 Give out viewer links freely and editor links deliberately.
 
+## How a person is identified
+
+Every correction, fold and assignment made in the register is filed against a
+holder's id, so what that id means has to never change. It is a hash of the
+holder's name as the inventory spells it: the same person keeps the same id
+however many people arrive or leave around them.
+
+Until 4.0.0 it was the row's position in an alphabetical list, which meant
+that adding fourteen people to the workbook moved 486 of 487 ids onto somebody
+else. An import brings an older register forward — matching stored records to
+incoming ones by name and moving everything filed against them — and prints a
+line saying it has done so.
+
+A person whose name is **respelled** in the workbook gets a new id and appears
+as a second record. That is deliberate: the register cannot know whether a new
+spelling is the same person or a different one, so it offers the pair under
+*Possible duplicate people* and a person decides.
+
 ## Refreshing from a new workbook
 
 ```bash

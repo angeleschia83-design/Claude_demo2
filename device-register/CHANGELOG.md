@@ -7,6 +7,56 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
+## 4.0.0 — 9 November 2026
+
+**A holder's id now means the same person for ever.** It used to be the row's
+position in an alphabetical list. The November workbook added fourteen people,
+and that moved **486 of the 487 ids onto somebody else** — every correction,
+every fold and every assignment in the register is filed against an id, so all
+of them would have landed on the wrong person.
+
+An id is a hash of the holder's name now: fourteen people arrived, nobody
+else's id moved. Checked both workbooks side by side — 483 people in common,
+**zero** id changes, no collisions in 497.
+
+**An existing register is carried forward on its next import.** Stored records
+are matched to incoming ones by name, the record takes the new id, and
+everything filed against it moves too — corrections, folds, assignments, the
+audit trail. The import says so when it happens. Tested on a register built
+the old way, carrying a note and a fold: both came through attached to the
+right person.
+
+A person whose name is **respelled** in the workbook still gets a new id and
+shows up as a second record. That is on purpose — the register cannot know
+whether a new spelling is the same person — and it is what *Possible duplicate
+people* is for.
+
+### The November workbook
+
+Nothing was added or removed: the same 1,542 serials. What changed is who
+holds them.
+
+- **16 assignments** — 15 pieces of hardware went from *Available* to
+  *Active/Assigned*, one went to *retired/decommision*.
+- **14 people** now named on hardware who were not before, 4 no longer named.
+- Among them two the register would rather you saw: *Allen Delas Llagas* has
+  become *Allen De Las Llagas*, and a holder recorded only as *Santos* is now
+  *Edmar Jose Santos*.
+- 3 iMacs that had no model have one.
+- 497 holders, 1,544 rows, 552 devices in people's hands.
+
+Eleven duplicate pairs remain and have been folded, which leaves **486
+holders**. *Mae Legaspi*, folded in 3.3.0, is no longer named on any asset at
+all, so her pair is gone of its own accord.
+
+### Also
+
+- A duplicate pair now carries how each name matched HR's list, so whatever
+  shows the pair can say why one record is the one to keep rather than working
+  it out again.
+- The note to IT claimed holder ids were "stable across imports". They were
+  not. It says what they are now.
+
 ## 3.5.0 — 9 November 2026
 
 **An asset can be taken off the register**, the same way a duplicate person

@@ -168,6 +168,51 @@ const write = db.transaction(() => {
   return { goneHolders, goneDevices };
 });
 
+/* Holder ids used to be the row's position in an alphabetical list, so
+   adding one person to the workbook slid almost every id onto somebody
+   else — and every correction in the register is filed against an id. They
+   are derived from the name now. A register built before that change is
+   brought forward here: where a stored record has the same name as an
+   incoming one but a different id, the stored record takes the new id, and
+   so does everything filed against it. */
+const relabel = db.transaction(() => {
+  const tidy = (value) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const wanted = new Map(holderRows.map((row) => [tidy(row.name), row.id]));
+  const taken = new Set(db.prepare('SELECT id FROM holders').all().map((row) => row.id));
+  const moves = [];
+  for (const row of db.prepare('SELECT id, name FROM holders').all()) {
+    const next = wanted.get(tidy(row.name));
+    if (!next || next === row.id) continue;
+    if (taken.has(next)) continue;          /* already under the new id */
+    moves.push([row.id, next, row.name]);
+    taken.add(next);
+  }
+  for (const [from, to] of moves) {
+    db.prepare('UPDATE holders SET id = ? WHERE id = ?').run(to, from);
+    db.prepare('UPDATE holders SET merged_into = ? WHERE merged_into = ?').run(to, from);
+    db.prepare('UPDATE devices SET holder_id = ? WHERE holder_id = ?').run(to, from);
+    db.prepare('UPDATE audit SET holder_id = ? WHERE holder_id = ?').run(to, from);
+    /* An assignment made in the app is an override, so it carries the id
+       too. */
+    for (const device of db.prepare(
+      "SELECT serial, overrides FROM devices WHERE json_extract(overrides, '$.holder_id') = ?",
+    ).all(from)) {
+      const carried = JSON.parse(device.overrides);
+      carried.holder_id = to;
+      db.prepare('UPDATE devices SET overrides = ? WHERE serial = ?')
+        .run(JSON.stringify(carried), device.serial);
+    }
+  }
+  return moves;
+});
+
+const moved = relabel();
+if (moved.length) {
+  console.log(`${moved.length} holder ids were the row's position in a list and are now derived from `
+    + 'the name, so they stop moving when the workbook changes. Every correction, fold and '
+    + 'assignment filed against them moved with them.');
+}
+
 const held = devices.filter((d) => d.held === 'yes').length;
 const empty = db.prepare('SELECT COUNT(*) AS n FROM holders').get().n === 0;
 const takeTheLot = process.argv.includes('--apply-all');

@@ -100,6 +100,10 @@ export const findDuplicates = (holders) => {
           lap: row.lap || '',
           ipd: row.ipd || '',
           hr_status: row.hr_status || '',
+          /* How this name matched HR's own list. It is what decides which
+             record to keep, so it travels with the pair rather than being
+             looked up again by whoever shows it. */
+          src: row.src || row.label_source || '',
           createdHere: Boolean(row.createdHere),
           changed: row.changed || [],
         })),
