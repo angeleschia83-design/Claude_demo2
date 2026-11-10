@@ -7,6 +7,39 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
+## 4.1.0 — 10 November 2026
+
+**What has changed lately**, at the top of the page. The full log answers
+"what happened to this serial"; this answers the question people actually
+open the register with — has anything moved since I last looked, and who
+moved it. The last eight changes with who made them and how long ago, over a
+line that reads *4 changes today, 11 this week by 3 people. 212 in all.*
+Admins and editor links see it; viewer links do not.
+
+Every holder row also carries **who touched it last** and when, on hover, and
+the log's field names now read correctly for assets — an asset's `status` is
+its Status, not the holder's Device column.
+
+**The register tracks seven kinds of asset.** iPad, Laptop, Mouse, Monitor,
+iPad Keyboard, iPad pencil and Headset. The workbook's 349 ethernet adaptors,
+access points, switches, IP phones, SDWAN boxes, servers and so on are left
+out — none of them was in anybody's hands, and carrying them only made the
+counts harder to read. The import names what it dropped and how many:
+
+```
+349 assets left out, of types the register does not track:
+    250  Ethernet Adaptor
+     25  Type-C Adapter
+     ...
+```
+
+An **iMac is a computer somebody has been given**, so it stays, filed under
+Laptop with Imac as its model. Three of them are on one person's desk; a list
+taken literally would have stopped tracking them.
+
+1,193 assets now, 553 of them out with somebody. The holder count does not
+move: 498.
+
 ## 4.0.1 — 9 November 2026
 
 **One missing space was about to lose a holder.** This workbook writes

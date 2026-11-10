@@ -284,10 +284,24 @@ filtered on screen. The Excel file adds a "Filtered view" sheet when a filter
 is on, so the narrowed list is there too without the full one being lost. Only
 the admin export includes network IDs and email addresses.
 
+## What the register tracks
+
+Seven kinds of asset: **iPad, Laptop, Mouse, Monitor, iPad Keyboard, iPad
+pencil, Headset**. Everything else in the workbook — ethernet adaptors, access
+points, switches, IP phones, SDWAN boxes, servers — is left out at import, and
+the import prints what it dropped and how many of each.
+
+An iMac is filed under Laptop, with `Imac` as its model: it is a computer
+somebody has been given, and leaving it out would stop three machines on one
+person's desk being tracked at all.
+
+To change the list, edit `KEEP_TYPES` at the top of `scripts/build-data.py`
+and re-import.
+
 ## Assets
 
-Every serial in the inventory, not only the 543 in somebody's hands: 1,545
-rows, accessories, spares, network kit and retired assets included.
+Every serial of those types, not only the ones in somebody's hands: 1,193
+rows, spares and retired assets included.
 
 Click a cell to correct it. **Status, asset type and model are picked from a
 list** rather than typed — see below. The serial itself can be corrected too;
@@ -422,6 +436,15 @@ time.
 A long block can be damaged in transit — email wraps lines and adds `>` to
 forwarded ones — and the register reads through both. The file cannot be
 damaged that way, so prefer it for anything more than a handful of changes.
+
+## What has changed lately
+
+At the top of the page, for admins and editor links: the last eight changes,
+who made each one and how long ago, over a line that reads *4 changes today,
+11 this week by 3 people. 212 in all.* **See the whole log** jumps to the
+searchable log below.
+
+Every holder row also says who touched it last, and when, on hover.
 
 ## The change log
 

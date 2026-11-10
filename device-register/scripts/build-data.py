@@ -38,6 +38,23 @@ LAPTOP_TYPES = {"Laptop", "Imac"}
 IPAD_TYPES = {"iPad"}
 ACTIVE = "Active/ Assigned"
 
+# What the register tracks. Everything else in the workbook — adaptors,
+# access points, switches, phones, servers — is inventory somebody else
+# keeps, and carrying it here only made the counts harder to read.
+KEEP_TYPES = {
+    "ipad": "iPad",
+    "laptop": "Laptop",
+    "mouse": "Mouse",
+    "monitor": "Monitor",
+    "ipad keyboard": "iPad Keyboard",
+    "ipad pencil": "iPad pencil",
+    "headset": "Headset",
+    # An iMac is a computer somebody has been given, so it belongs here. It
+    # is filed under Laptop and keeps Imac as its model, which is how the
+    # register already counted it.
+    "imac": "Laptop",
+}
+
 
 def status_key(value):
     """A status with its spacing and case taken out of the question.
@@ -236,6 +253,24 @@ def make_lookup(employees):
 def build(workbook_path, out_dir, employee_list=None):
     book = openpyxl.load_workbook(workbook_path, data_only=True, read_only=True)
     assets = read_devices(book)
+    # Only the asset types the register tracks. The rest are counted out
+    # loud rather than quietly dropped.
+    dropped = collections.Counter()
+    kept = []
+    for asset in assets:
+        key = re.sub(r"\s+", " ", str(asset["asset_type"] or "")).strip().lower()
+        if key not in KEEP_TYPES:
+            dropped[asset["asset_type"] or "(no asset type)"] += 1
+            continue
+        asset["asset_type"] = KEEP_TYPES[key]
+        kept.append(asset)
+    if dropped:
+        total = sum(dropped.values())
+        print(f"  {total} assets left out, of types the register does not track:")
+        for what, n in dropped.most_common():
+            print(f"      {n:>4}  {what}")
+    assets = kept
+
     # The same status spelled two ways counts as two things, so the
     # commonest spelling wins and the others are written as that. Spellings
     # that differ by more than spacing and case are left alone: those are

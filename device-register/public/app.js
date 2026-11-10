@@ -274,6 +274,13 @@
     const tr = document.createElement('tr');
     tr.dataset.id = r.id;
     if (r.resigned) tr.classList.add('is-resigned');
+    /* Who touched this record last, without having to go and look it up. */
+    if (r.updated_by) {
+      tr.title = `Last changed by ${r.updated_by}`
+        + (r.updated_at
+          ? ` on ${new Date(r.updated_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}`
+          : '');
+    }
 
     for (const field of FIELDS) {
       if (field.kind === 'text') { editable(tr, r, field); continue; }
@@ -870,6 +877,114 @@
     problems();
   }
 
+  /* ---------- what has changed lately ---------- */
+
+  /* The full log is further down and answers "what happened to this
+     serial". This answers the question people actually open the page with:
+     has anything moved since I last looked, and who moved it. */
+
+  /* A log line names a field, and the same key means different things on a
+     holder and on an asset: 'status' is the holder's Device column and the
+     asset's Status. Anything that is already a phrase — "assigned to",
+     "taken off the register" — passes through as written. */
+  const ASSET_FIELD = new Map([
+    ['asset_type', 'Asset type'], ['kind', 'Kind'], ['model', 'Model'], ['status', 'Status'],
+    ['age_years', 'Age in years'], ['os', 'Operating system'], ['host_name', 'Host name'],
+    ['specs', 'Specification'], ['remarks', 'Remark'], ['assigned_on', 'Assigned on'],
+    ['serial', 'Serial'],
+  ]);
+
+  const fieldLabel = (entry) => (entry.serial
+    ? ASSET_FIELD.get(entry.field) || entry.field
+    : (FIELDS.find((f) => f.key === entry.field) || { label: entry.field }).label);
+
+  const AGO = [
+    [60, 'just now'], [3600, (n) => `${Math.floor(n / 60)} min ago`],
+    [86400, (n) => `${Math.floor(n / 3600)} hr ago`],
+    [172800, 'yesterday'],
+  ];
+
+  function ago(when) {
+    const seconds = (Date.now() - new Date(when).getTime()) / 1000;
+    if (!Number.isFinite(seconds)) return '';
+    for (const [limit, label] of AGO) {
+      if (seconds < limit) return typeof label === 'function' ? label(seconds) : label;
+    }
+    return new Date(when).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  }
+
+  function recent() {
+    const card = $('recent-card');
+    if (!LOG || !LOG.entries || !canEdit()) { card.hidden = true; return; }
+    card.hidden = false;
+    const rows = LOG.entries.slice(0, 8);
+    const box = $('recent');
+    box.replaceChildren();
+
+    for (const entry of rows) {
+      const line = document.createElement('div');
+      line.className = 'recent-row';
+
+      const when = document.createElement('span');
+      when.className = 'recent-when';
+      when.textContent = ago(entry.at);
+      when.title = new Date(entry.at).toLocaleString('en-GB', { dateStyle: 'full', timeStyle: 'short' });
+
+      const who = document.createElement('span');
+      who.className = 'recent-who';
+      who.textContent = entry.actor;
+      who.title = entry.actor;
+
+      const what = document.createElement('span');
+      what.className = 'recent-what';
+      const subject = document.createElement('strong');
+      subject.textContent = entry.name || entry.serial || entry.holder_id || '';
+      what.appendChild(subject);
+      what.appendChild(document.createTextNode(
+        ` \u2014 ${fieldLabel(entry)}: ${entry.old_value || '(empty)'} `));
+      const arrow = document.createElement('span');
+      arrow.className = 'arrow';
+      arrow.textContent = '\u2192';
+      what.appendChild(arrow);
+      what.appendChild(document.createTextNode(` ${entry.new_value || '(empty)'}`));
+      if (entry.ticket) {
+        const ticket = document.createElement('span');
+        ticket.className = 'recent-tkt';
+        ticket.textContent = `  ticket ${entry.ticket}`;
+        what.appendChild(ticket);
+      }
+
+      line.append(when, who, what);
+      box.appendChild(line);
+    }
+
+    if (!rows.length) {
+      const none = document.createElement('p');
+      none.className = 'muted';
+      none.textContent = 'Nothing has been changed yet. Corrections made here show up in this list '
+        + 'with who made them.';
+      box.appendChild(none);
+    }
+
+    /* Who has been at work, rather than only what they did. */
+    const day = 24 * 60 * 60 * 1000;
+    const since = (ms) => LOG.entries.filter((e) => Date.now() - new Date(e.at).getTime() < ms);
+    const today = since(day);
+    const week = since(7 * day);
+    const hands = [...new Set(week.map((e) => e.actor))];
+    $('recent-line').textContent = LOG.total
+      ? `${nf.format(today.length)} change${today.length === 1 ? '' : 's'} today, `
+        + `${nf.format(week.length)} this week`
+        + (hands.length ? ` by ${hands.length === 1 ? hands[0] : `${hands.length} people`}` : '')
+        + `. ${nf.format(LOG.total)} in all.`
+      : '\u00a0';
+  }
+
+  $('recent-all').addEventListener('click', () => {
+    $('log-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $('log-q').focus();
+  });
+
   /* ---------- change log ---------- */
 
   function logView() {
@@ -896,7 +1011,7 @@
         new Date(e.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }),
         e.actor,
         e.name || e.serial || e.holder_id,
-        (FIELDS.find((f) => f.key === e.field) || { label: e.field }).label,
+        fieldLabel(e),
         e.old_value || '(empty)',
         e.new_value || '(empty)',
         e.ticket || '',
@@ -919,7 +1034,7 @@
      a reload, and quietly does nothing for a role that cannot see the log. */
   function refreshLog() {
     if (!canEdit()) return;
-    api('/api/audit?limit=1000').then((log) => { LOG = log; logView(); }).catch(() => {});
+    api('/api/audit?limit=1000').then((log) => { LOG = log; logView(); recent(); }).catch(() => {});
     api('/api/problems').then((found) => { PROBLEMS = found; problems(); }).catch(() => {});
   }
 
@@ -1172,7 +1287,7 @@
         $('log-card').hidden = false;
         $('merge-card').hidden = false;
         Promise.all([api('/api/audit?limit=1000'), api('/api/problems')])
-          .then(([log, found]) => { LOG = log; PROBLEMS = found; logView(); problems(); })
+          .then(([log, found]) => { LOG = log; PROBLEMS = found; logView(); recent(); problems(); })
           .catch(() => { $('log-card').hidden = true; });
       }
     } catch (e) {

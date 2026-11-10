@@ -227,3 +227,19 @@ dialog h3 { margin: 0 0 12px; font-size: 15px; }
 #gone-box summary { cursor: pointer; color: var(--fg-dim); }
 #gone-box summary:hover { color: var(--fg); }
 #gone .folded { font-family: var(--font-mono); font-size: 12px; }
+
+/* What has changed lately */
+.headrow { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.headrow h2 { margin: 0; }
+.recent { display: flex; flex-direction: column; }
+.recent-row { display: grid; grid-template-columns: 7.5rem 10rem 1fr; gap: 10px; align-items: baseline;
+  padding: 6px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+.recent-row:last-child { border-bottom: 0; }
+.recent-when { color: var(--fg-mute); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.recent-who { color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-what strong { font-weight: 500; }
+.recent-what .arrow { color: var(--fg-mute); }
+.recent-tkt { color: var(--warn); font-size: 12px; }
+@media (max-width: 40rem) {
+  .recent-row { grid-template-columns: 1fr; gap: 2px; }
+}
