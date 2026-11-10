@@ -5,9 +5,13 @@
   --sales: #0e7571; --ho: #35558c; --unset: #7b8490;
   --laptop: #35558c; --ipad: #0e7571; --both: #8f5c12;
   --warn: #a4382b; --ok: #1f6b45;
-  --font-ui: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-fig: "IBM Plex Serif", ui-serif, Georgia, serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* The fonts the browser already has. An internal register that fetches a
+     webfont from the internet on every page load is one more thing to
+     explain to whoever signs off the server, and one more thing to break
+     when the server has no way out. */
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-fig: ui-serif, Georgia, "Times New Roman", serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --r: 6px; --gut: 20px; --max: 1360px;
 }
 @media (prefers-color-scheme: dark) {
@@ -243,3 +247,11 @@ dialog h3 { margin: 0 0 12px; font-size: 15px; }
 @media (max-width: 40rem) {
   .recent-row { grid-template-columns: 1fr; gap: 2px; }
 }
+
+/* Scroll heights, as classes rather than style attributes, so the content
+   security policy can forbid inline styles outright. */
+.scroll-18 { max-height: 18rem; }
+.scroll-22 { max-height: 22rem; }
+.scroll-24 { max-height: 24rem; }
+.scroll-26 { max-height: 26rem; }
+.scroll-32 { max-height: 32rem; }

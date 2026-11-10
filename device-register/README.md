@@ -15,6 +15,12 @@ people with no device than really have none.
 
 ## What it is built on
 
+One dependency — `express` — and Node's own built-in SQLite. Spreadsheet
+exports are written by `src/xlsx.mjs` rather than a library. Nothing is
+loaded from the internet at runtime, by the server or by the page, and
+`npm audit` reports nothing.
+
+
 - **Asset Central Inventory is the only source of devices.** A person appears
   here only if that tab names them on a Laptop, Imac or iPad whose status is
   `Active/ Assigned`.

@@ -4,8 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Device register</title>
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400&display=swap">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -126,7 +124,7 @@
       seen before appears here on its own — nothing has to be added first.</p>
     <p class="count" id="sum-line">&nbsp;</p>
 
-    <div class="scroll" style="max-height: 24rem">
+    <div class="scroll scroll-24">
       <table id="sum-type"><thead><tr id="sum-type-head"></tr></thead><tbody id="sum-type-body"></tbody></table>
     </div>
 
@@ -135,14 +133,14 @@
         <select class="txt" id="sum-pick"></select>
       </label>
     </div>
-    <div class="scroll" style="max-height: 22rem">
+    <div class="scroll scroll-22">
       <table id="sum-model"><thead><tr id="sum-model-head"></tr></thead><tbody id="sum-model-body"></tbody></table>
     </div>
 
     <h2>Age of the assets</h2>
     <p class="muted">For the asset type chosen above. Anything with no age recorded gets its own column
       rather than being left out.</p>
-    <div class="scroll" style="max-height: 18rem">
+    <div class="scroll scroll-18">
       <table id="sum-age"><thead><tr id="sum-age-head"></tr></thead><tbody id="sum-age-body"></tbody></table>
     </div>
 
@@ -197,7 +195,7 @@
       <summary>Assets taken off the register</summary>
       <div id="gone"></div>
     </details>
-    <div class="scroll" style="max-height: 32rem">
+    <div class="scroll scroll-32">
       <table>
         <thead><tr id="a-head"></tr></thead>
         <tbody id="a-body"></tbody>
@@ -218,7 +216,7 @@
     <p class="muted" id="wb-note"></p>
     <p class="count" id="wb-line">&nbsp;</p>
     <div id="wb-result" hidden>
-      <div class="scroll" style="max-height: 26rem">
+      <div class="scroll scroll-26">
         <table>
           <thead><tr>
             <th><input type="checkbox" id="wb-all" aria-label="Tick everything that does not undo a correction"></th>
@@ -251,7 +249,7 @@
     </div>
     <p class="count" id="merge-line">&nbsp;</p>
     <div id="merge-result" hidden>
-      <div class="scroll" style="max-height: 24rem">
+      <div class="scroll scroll-24">
         <table>
           <thead><tr>
             <th><input type="checkbox" id="merge-all" aria-label="Tick every change that can be applied"></th>
@@ -276,7 +274,7 @@
       <button type="button" class="btn btn-quiet btn-small" id="log-export">Export the log</button>
     </div>
     <p class="count" id="log-count">&nbsp;</p>
-    <div class="scroll" style="max-height: 26rem">
+    <div class="scroll scroll-26">
       <table>
         <thead><tr><th>When</th><th>Who</th><th>Holder or asset</th><th>Field</th><th>Was</th><th>Became</th><th>Ticket</th></tr></thead>
         <tbody id="log-body"></tbody>

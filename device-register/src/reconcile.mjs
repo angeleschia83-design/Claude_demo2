@@ -218,6 +218,12 @@ export const applyPlan = db.transaction((picked, actor) => {
 
   for (const change of [...plan.holders.changes, ...plan.devices.changes]) {
     if (!wanted.has(change.key)) continue;
+    /* The column name goes into the statement as text, so it is checked
+       against the list of columns the workbook owns rather than trusted.
+       It is built here, not sent by the caller, and this keeps it that way
+       however the code around it changes. */
+    const owned = change.kind === 'holder' ? HOLDER_FIELDS : DEVICE_FIELDS;
+    if (!owned.has(change.field)) continue;
     if (change.kind === 'holder') {
       db.prepare(`UPDATE holders SET ${change.field} = ? WHERE id = ?`).run(change.now, change.id);
       /* Taking the workbook's value where a correction disagreed means

@@ -1,5 +1,4 @@
 import express from 'express';
-import XLSX from 'xlsx';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -25,6 +24,7 @@ const { db, listHolders, getHolder, listFleet, listDevices, updateHolder, listAu
 const { sessions, requireRole, makeSession, checkAdminPassword, cookieName, cookieOptions, newToken } =
   await import('./auth.mjs');
 const { parseChanges, planChanges, patchesFor } = await import('./merge.mjs');
+const { writeWorkbook } = await import('./xlsx.mjs');
 const assets = await import('./assets.mjs');
 const reconcile = await import('./reconcile.mjs');
 
@@ -34,15 +34,69 @@ assets.seedLists();
 
 const app = express();
 app.disable('x-powered-by');
+
+/* Behind a reverse proxy every request arrives from the proxy, so the
+   lockout below would count the whole company as one address. Set
+   TRUST_PROXY=1 only when there really is a proxy in front: trusting the
+   header when there is not lets a caller claim any address it likes. */
+if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
+
+/* The page loads nothing from anywhere else: no fonts, no scripts, no
+   analytics, no frames. Saying so in a header means a browser enforces it
+   even if a later edit forgets. */
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', [
+    "default-src 'self'",
+    "img-src 'self' data:",
+    "style-src 'self'",
+    "script-src 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'none'",
+    "object-src 'none'",
+  ].join('; '));
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  next();
+});
+
 app.use(express.json({ limit: '64kb' }));
 app.use(sessions);
 
 /* ---------- signing in ---------- */
 
+/* One password guarded by nothing is a password somebody can guess at
+   leisure. Five wrong tries from one address and that address waits, with
+   the wait growing each time; a right one clears it. Kept in memory on
+   purpose: a restart is not a way around it, because a restart means
+   somebody with access to the server, who has easier paths than this. */
+const attempts = new Map();
+const LOCK_AFTER = 5;
+
+const lockedFor = (who) => {
+  const seen = attempts.get(who);
+  if (!seen || seen.count < LOCK_AFTER) return 0;
+  const wait = Math.min(2 ** (seen.count - LOCK_AFTER) * 15000, 15 * 60000);
+  return Math.max(0, seen.at + wait - Date.now());
+};
+
 app.post('/api/login', (req, res) => {
+  const who = req.ip || 'unknown';
+  const wait = lockedFor(who);
+  if (wait > 0) {
+    res.setHeader('Retry-After', Math.ceil(wait / 1000));
+    return res.status(429).json({
+      error: `Too many wrong passwords. Try again in ${Math.ceil(wait / 1000)} seconds.`,
+    });
+  }
   if (!checkAdminPassword(req.body?.password)) {
+    const seen = attempts.get(who) || { count: 0 };
+    attempts.set(who, { count: seen.count + 1, at: Date.now() });
     return res.status(401).json({ error: 'That password is not right.' });
   }
+  attempts.delete(who);
   res.cookie(cookieName, makeSession('admin', 'IT admin'), cookieOptions());
   res.json({ role: 'admin', label: 'IT admin' });
 });
@@ -420,24 +474,20 @@ app.get('/api/export.csv', requireRole('admin', 'editor', 'viewer'), (req, res) 
 
 app.get('/api/export.xlsx', requireRole('admin', 'editor', 'viewer'), (req, res) => {
   const columns = exportColumns(req.session.role);
+  const headings = columns.map(([, head]) => head);
   const rows = listHolders();
   const shape = (list) => list.map((row) =>
     Object.fromEntries(columns.map(([key, head]) => [head, exportValue(row, key)])));
-
-  const book = XLSX.utils.book_new();
   const widths = columns.map(([key]) =>
-    ({ wch: ['name', 'position', 'department'].includes(key) ? 28 : key === 'rem' ? 26 : 14 }));
+    (['name', 'position', 'department'].includes(key) ? 28 : key === 'rem' ? 26 : 14));
 
-  const main = XLSX.utils.json_to_sheet(shape(rows));
-  main['!cols'] = widths;
-  main['!autofilter'] = { ref: main['!ref'] };
-  XLSX.utils.book_append_sheet(book, main, 'Holders');
+  const sheets = [
+    { name: 'Holders', headings, widths, filter: true, rows: shape(rows) },
+  ];
 
   const leavers = rows.filter((row) => row.resigned);
   if (leavers.length) {
-    const sheet = XLSX.utils.json_to_sheet(shape(leavers));
-    sheet['!cols'] = widths;
-    XLSX.utils.book_append_sheet(book, sheet, 'To retrieve');
+    sheets.push({ name: 'To retrieve', headings, widths, rows: shape(leavers) });
   }
 
   const counts = new Map();
@@ -452,9 +502,12 @@ app.get('/api/export.xlsx', requireRole('admin', 'editor', 'viewer'), (req, res)
     if (row.resigned) entry.Resigned += 1;
     counts.set(key, entry);
   }
-  const summary = XLSX.utils.json_to_sheet([...counts.values()]);
-  summary['!cols'] = [{ wch: 12 }, { wch: 9 }, { wch: 9 }, { wch: 8 }, { wch: 8 }, { wch: 10 }];
-  XLSX.utils.book_append_sheet(book, summary, 'Summary');
+  sheets.push({
+    name: 'Summary',
+    headings: ['Type', 'People', 'Laptops', 'iPads', 'Units', 'Resigned'],
+    widths: [12, 9, 9, 8, 8, 10],
+    rows: [...counts.values()],
+  });
 
   /* The asset summary the spreadsheet used to hold, counted from the rows so
      a new model or status cannot be dropped. */
@@ -467,7 +520,7 @@ app.get('/api/export.xlsx', requireRole('admin', 'editor', 'viewer'), (req, res)
       const key = `${r[down]}\u0000${r[across]}`;
       at.set(key, (at.get(key) || 0) + r.n);
     }
-    return downs.map((d) => {
+    const body = downs.map((d) => {
       const line = { [firstLabel]: d };
       let total = 0;
       for (const a of acrosses) {
@@ -478,35 +531,38 @@ app.get('/api/export.xlsx', requireRole('admin', 'editor', 'viewer'), (req, res)
       line.Total = total;
       return line;
     });
+    return { headings: [firstLabel, ...acrosses, 'Total'], rows: body };
   };
 
-  const byType = XLSX.utils.json_to_sheet(pivot(asset.rows, 'type', 'status', 'Asset type'));
-  byType['!cols'] = [{ wch: 22 }, ...Array(10).fill({ wch: 13 })];
-  XLSX.utils.book_append_sheet(book, byType, 'Assets by type');
+  const byType = pivot(asset.rows, 'type', 'status', 'Asset type');
+  sheets.push({ name: 'Assets by type', ...byType,
+    widths: [22, ...Array(byType.headings.length - 1).fill(13)] });
 
-  const byModel = XLSX.utils.json_to_sheet(
-    pivot(asset.rows.filter((r) => r.type === 'Laptop' || r.type === 'iPad' || r.type === 'Imac'),
-          'model', 'status', 'Model'));
-  byModel['!cols'] = [{ wch: 22 }, ...Array(10).fill({ wch: 13 })];
-  XLSX.utils.book_append_sheet(book, byModel, 'Laptops and iPads by model');
+  const byModel = pivot(
+    asset.rows.filter((r) => r.type === 'Laptop' || r.type === 'iPad'), 'model', 'status', 'Model');
+  sheets.push({ name: 'Laptops and iPads by model', ...byModel,
+    widths: [22, ...Array(byModel.headings.length - 1).fill(13)] });
 
-  const byAge = XLSX.utils.json_to_sheet(pivot(asset.rows, 'type', 'age', 'Asset type'));
-  byAge['!cols'] = [{ wch: 22 }, ...Array(4).fill({ wch: 16 })];
-  XLSX.utils.book_append_sheet(book, byAge, 'Asset age');
+  const byAge = pivot(asset.rows, 'type', 'age', 'Asset type');
+  sheets.push({ name: 'Asset age', ...byAge,
+    widths: [22, ...Array(byAge.headings.length - 1).fill(16)] });
 
   if (asset.duplicates.length) {
-    const dupes = XLSX.utils.json_to_sheet(asset.duplicates.map((d) => ({
-      Serial: d.serial, 'Asset type': d.asset_type, Model: d.model,
-      'Listed as': d.statuses.join(' / '), 'Assigned to': d.holder,
-      Note: 'One serial is one piece of hardware, so this is counted once.',
-    })));
-    dupes['!cols'] = [{ wch: 16 }, { wch: 14 }, { wch: 18 }, { wch: 30 }, { wch: 22 }, { wch: 58 }];
-    XLSX.utils.book_append_sheet(book, dupes, 'Duplicate serials');
+    sheets.push({
+      name: 'Duplicate serials',
+      headings: ['Serial', 'Asset type', 'Model', 'Listed as', 'Assigned to', 'Note'],
+      widths: [16, 14, 18, 30, 22, 58],
+      rows: asset.duplicates.map((d) => ({
+        Serial: d.serial, 'Asset type': d.asset_type, Model: d.model,
+        'Listed as': d.statuses.join(' / '), 'Assigned to': d.holder,
+        Note: 'One serial is one piece of hardware, so this is counted once.',
+      })),
+    });
   }
 
   res.type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.attachment('device-holders.xlsx');
-  res.send(XLSX.write(book, { bookType: 'xlsx', type: 'buffer' }));
+  res.send(writeWorkbook(sheets));
 });
 
 /* ---------- admin only ---------- */

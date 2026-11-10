@@ -7,6 +7,43 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
+## 4.4.0 — 10 November 2026
+
+Everything here came out of reading the code the way a security reviewer
+would, before it goes to one.
+
+**One dependency, no findings.** `npm audit` reported five, four of them
+cleared by moving express 4.21.1 to 4.22.3. The fifth was the spreadsheet
+library, with no fix available — both advisories about parsing a hostile
+workbook, which this never does: it only ever *writes* spreadsheets, and the
+workbook is read by Python at import time. Rather than argue that in every
+review, the library is gone. Exports are written directly now, in
+`src/xlsx.mjs` — an .xlsx is a zip of XML parts, and a flat table needs five
+of them. Checked by reading the result back with two independent readers.
+
+    before: express + xlsx, 76 packages, 5 vulnerabilities
+    after:  express,        67 packages, 0 vulnerabilities
+
+**Nothing is loaded from the internet.** The page fetched its typeface from
+Google on every view. An internal register that calls out to a third party
+on every page load is a thing to have to explain, and it breaks on a server
+with no way out. It uses the fonts already on the machine now.
+
+**A content security policy**, plus `X-Content-Type-Options`,
+`Referrer-Policy`, `X-Frame-Options` and `Cross-Origin-Opener-Policy`. The
+policy is `default-src 'self'` with no inline scripts or styles allowed —
+the seven inline `style` attributes moved into the stylesheet so it could be
+that strict.
+
+**A lockout on the sign-in.** Five wrong passwords from one address and that
+address waits, doubling to a quarter of an hour; a right one clears it. Set
+`TRUST_PROXY=1` behind a proxy so it counts the caller and not the proxy.
+
+**The column name in the one statement that interpolates one** is now
+checked against the list of columns the workbook owns. It was already built
+server-side rather than sent by a caller; this keeps it that way whatever
+changes around it.
+
 ## 4.3.0 — 10 November 2026
 
 **Invite links now carry the address people actually use.** They were built
