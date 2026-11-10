@@ -7,6 +7,25 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
+## 4.2.0 — 10 November 2026
+
+**The duplicate finder was walking past transposed letters.** *Darly joice
+Cabel* and *Daryl Joyce Cabel* are one person. The likeness measure compares
+runs of letters in order, which scores that pair 0.53 and says nothing — so
+the register held her twice until somebody spotted it by eye and tried to fix
+it by emptying one of the names.
+
+A pair of names the same length, word for word, now also matches when each
+word is the same letters in a different order or one letter out. The reason
+it gives names the words:
+
+> The same name typed two ways — "darly" against "daryl", "joice" against
+> "joyce". Same letters in a different order, or one letter out.
+
+Twelve pairs across 498 names now, up from eleven, with no new false matches.
+It also sharpens what it says about four pairs it already found, *Oddette*
+against *Odette* among them.
+
 ## 4.1.0 — 10 November 2026
 
 **What has changed lately**, at the top of the page. The full log answers

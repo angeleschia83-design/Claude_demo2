@@ -33,6 +33,39 @@ const likeness = (a, b) => {
   return (2 * matched) / (a.length + b.length);
 };
 
+/* Two words that are the same word typed wrong: the same letters in a
+   different order, or one letter out. "Darly" against "Daryl" is the first;
+   "joice" against "joyce" is the second. The run-of-letters measure above
+   scores that pair 0.53 and walks past it, which is how one person stayed
+   in the register twice until somebody noticed by eye. */
+const sorted = (word) => [...word].sort().join('');
+
+const nearlyTheSameWord = (a, b) => {
+  if (a === b) return true;
+  if (a.length < 4 || b.length < 4) return false;
+  if (a.length === b.length && sorted(a) === sorted(b)) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  /* one insertion, deletion or substitution apart */
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  let i = 0;
+  let j = 0;
+  let slips = 0;
+  while (i < short.length && j < long.length) {
+    if (short[i] === long[j]) { i += 1; j += 1; continue; }
+    slips += 1;
+    if (slips > 1) return false;
+    if (short.length === long.length) { i += 1; j += 1; } else { j += 1; }
+  }
+  return slips + (long.length - j) + (short.length - i) <= 1;
+};
+
+/* The same name typed wrong word for word, which letter-by-letter
+   likeness misses when letters are transposed. */
+const typedWrong = (wa, wb) => wa.length === wb.length
+  && wa.length > 1
+  && wa.every((word, at) => nearlyTheSameWord(word, wb[at]))
+  && wa.some((word, at) => word !== wb[at]);
+
 const describe = (a, b) => {
   const wa = words(a.name);
   const wb = words(b.name);
@@ -49,6 +82,15 @@ const describe = (a, b) => {
     const shorterOne = wa.length > wb.length ? b.name : a.name;
     return {
       why: `"${shorterOne}" is "${longerOne}" without the middle name.`,
+      rank: 2,
+    };
+  }
+  if (typedWrong(wa, wb)) {
+    const off = wa.map((word, at) => (word === wb[at] ? null : `"${word}" against "${wb[at]}"`))
+      .filter(Boolean);
+    return {
+      why: `The same name typed two ways \u2014 ${off.join(', ')}. `
+        + 'Same letters in a different order, or one letter out.',
       rank: 2,
     };
   }
@@ -81,7 +123,8 @@ export const findDuplicates = (holders) => {
       const subset = shared.length >= 2 && (shared.length === sa.size || shared.length === sb.size);
       const close = likeness(norm(a.name), norm(b.name)) >= 0.86
         && (wa[wa.length - 1] === wb[wb.length - 1] || wa[0] === wb[0]);
-      if (!sameWords && !subset && !close) continue;
+      const mistyped = typedWrong(wa, wb);
+      if (!sameWords && !subset && !close && !mistyped) continue;
 
       const { why, rank } = describe(a, b);
       pairs.push({

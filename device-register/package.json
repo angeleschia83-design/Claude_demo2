@@ -1,6 +1,6 @@
 {
   "name": "device-register",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "private": true,
   "type": "module",
   "description": "Shared register of who holds which company laptop or iPad.",
