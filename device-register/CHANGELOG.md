@@ -7,6 +7,25 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
+## 4.5.0 — 10 November 2026
+
+**The rules for matching two names are written once now.** They used to
+exist three times — in the register, in the dashboard, and inside the shared
+HTML copy — and in 4.2.0 that cost a release: the fix that catches *Darly
+joice Cabel* against *Daryl Joyce Cabel* went into the register, and the
+dashboard carried on missing the pair until somebody noticed by eye.
+
+`src/name-match.mjs` is the one copy. The browser versions are generated
+from it and carry a do-not-edit header; `offline/build-name-match.py` writes
+them. The dashboard loads the generated file, and the shared copy and the
+offline file inline it at build time.
+
+`src/duplicates.mjs` drops from 190 lines to 57 — it finds pairs and shapes
+them for the page, and asks `whyTheyMatch` whether a pair is one.
+
+Nothing a person sees changed: the same twelve pairs, in the same order,
+with the same reasons, on all three surfaces.
+
 ## 4.4.0 — 10 November 2026
 
 Everything here came out of reading the code the way a security reviewer

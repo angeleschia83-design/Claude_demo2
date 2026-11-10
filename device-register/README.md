@@ -383,6 +383,14 @@ drift from what the Assets table says.
 
 ## One person entered twice
 
+The rules that decide whether two names are one person live in
+`src/name-match.mjs`, and only there. The dashboard and the shared HTML copy
+use generated versions of that file — they carry a do-not-edit header, and
+`offline/build-name-match.py` rewrites them. Change the source and
+regenerate; never edit a copy, or the three surfaces disagree about who is a
+duplicate, which has happened.
+
+
 Holders come from assignee names typed into the inventory workbook, so one
 person typed two ways is two records with some hardware each. **Possible
 duplicate people** proposes the pairs and says why; you decide.
