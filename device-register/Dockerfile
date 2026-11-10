@@ -4,9 +4,9 @@
 # platforms; the toolchain here is the fallback for the ones it does not, and
 # is left behind in the builder stage either way.
 FROM node:22-bookworm-slim AS deps
-RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 make g++ \
- && rm -rf /var/lib/apt/lists/*
+# Nothing here compiles: the one dependency is plain JavaScript and storage
+# is Node's own SQLite, so the image needs no toolchain. The spreadsheets
+# are read on the host by scripts/build-data.py, not in here.
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
