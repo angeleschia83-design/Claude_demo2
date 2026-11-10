@@ -1141,9 +1141,14 @@
 
     const note = $('link-note');
     const [address] = session.addresses || [];
-    if (address && linkBase() !== location.origin) {
+    if (address && session.announced) {
+      note.textContent = `Links below use ${address}, the address this register is published at. `
+        + 'Send one to anybody who needs it: they open it and they are in. Nothing to install, '
+        + 'no account, no password.';
+    } else if (address && linkBase() !== location.origin) {
       note.textContent = `Links below use ${address}, which is how other machines on your network reach this one.`
-        + ' They must be on the same network, and this computer must stay on with the register running.';
+        + ' They must be on the same network, and this computer must stay on with the register running.'
+        + ' On a server, set PUBLIC_URL in .env to the address people really use.';
     } else if (!address) {
       note.textContent = 'This computer has no network address right now, so links will only work on it.';
     } else {

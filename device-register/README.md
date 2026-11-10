@@ -128,6 +128,18 @@ Then open `http://localhost:3000` and sign in with your `ADMIN_PASSWORD`.
 
 ## Giving someone a link
 
+**On a server, set `PUBLIC_URL` first.** Links are built from it:
+
+```
+PUBLIC_URL=https://devices.example.com
+```
+
+Without it the register uses the machine's own network address, which is
+right on a laptop and wrong behind a hostname or a proxy — the link would
+carry an address nobody outside the office can reach. The sharing panel says
+which of the two it is doing.
+
+
 Sign in as admin and use **Links you have given out**. Name the link after
 whoever it is for, choose whether they may correct or only look, and send them
 the URL. Opening it is all they do — no account, no password, no sign-up.

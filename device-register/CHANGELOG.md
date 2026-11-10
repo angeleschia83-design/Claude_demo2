@@ -7,6 +7,26 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
+## 4.3.0 — 10 November 2026
+
+**Invite links now carry the address people actually use.** They were built
+from the machine's own network address, which is right for a laptop on the
+office wifi and wrong for a server: a link reading `http://10.80.103.201:3000`
+is a link nobody outside the office can open. Set `PUBLIC_URL` in `.env` to
+the address the register is published at and every link is built from it:
+
+```
+PUBLIC_URL=https://devices.example.com
+```
+
+The sharing panel says which of the two it is doing, and tells you to set
+`PUBLIC_URL` when it is guessing.
+
+Nothing else about the links changed — they have worked since 2.0.0 and still
+do: name a link, choose *can correct* or *look only*, send it. Whoever opens
+it is in, with nothing to install, no account and no password, and every
+change they make is logged under the name you gave the link.
+
 ## 4.2.0 — 10 November 2026
 
 **The duplicate finder was walking past transposed letters.** *Darly joice

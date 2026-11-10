@@ -66,6 +66,14 @@ app.get('/i/:token', (req, res) => {
    admin's address bar, which is usually localhost and useless to anybody
    else. */
 const networkAddresses = () => {
+  /* On a server the machine's own addresses are the wrong answer: people
+     reach it by a hostname, through a proxy, on 443. PUBLIC_URL is that
+     address, and when it is set the links are built from it and nothing
+     else — a link carrying 10.80.103.201 is a link nobody outside the
+     office can open. */
+  const announced = String(process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '');
+  if (announced) return [announced];
+
   const port = Number(process.env.PORT) || 3000;
   return Object.values(os.networkInterfaces())
     .flat()
@@ -77,6 +85,9 @@ app.get('/api/session', (req, res) =>
   res.json({
     ...(req.session || { role: null }),
     addresses: networkAddresses(),
+    /* Whether that address was configured or guessed from the machine's own
+       network interfaces, so the page can say the right thing about it. */
+    announced: Boolean(String(process.env.PUBLIC_URL || '').trim()),
     version: VERSION,
     fields: editableFields,
   }));
