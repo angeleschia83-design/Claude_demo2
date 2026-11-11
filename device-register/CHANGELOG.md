@@ -7,6 +7,32 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
+## 4.6.0 — 11 November 2026
+
+**It stays up when you log off now.** The launchers run the register inside
+your login session, and Windows ends a session's processes when that session
+ends — so the register stopped the moment whoever started it disconnected
+from the server. The machine was up the whole time; the process was not.
+
+`service/` holds the fix for both platforms.
+
+**Windows:** `install-windows.ps1` registers a scheduled task that starts at
+boot, runs as `SYSTEM` with nobody logged in, restarts a minute after any
+stop, and has no execution time limit. It writes to `logs\server.log`, rolled
+at 5 MB. The full path to `node.exe` is resolved at install time and written
+into the task, because the SYSTEM account's PATH is rarely yours and "node is
+not recognised" at boot with no window to show it is a miserable thing to
+chase. It checks `/healthz` before it finishes and says so if the register
+did not answer. `-UserId` and `-Password` run it under a service account
+where policy wants that instead.
+
+**Linux:** a systemd unit, verified with `systemd-analyze verify`. Restarts on
+failure and confines the process — no new privileges, read-only system apart
+from its own folder, no access to home directories.
+
+`uninstall-windows.ps1` removes the task and leaves the database and logs
+where they are.
+
 ## 4.5.0 — 10 November 2026
 
 **The rules for matching two names are written once now.** They used to

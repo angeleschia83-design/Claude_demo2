@@ -1,0 +1,52 @@
+# The register as a systemd service, for a Linux server.
+#
+# The Windows equivalent is service/install-windows.ps1. Both exist for the
+# same reason: a server process must not depend on anybody being logged in.
+#
+#   sudo cp service/device-register.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now device-register
+#   systemctl status device-register
+#   journalctl -u device-register -f
+#
+# Change User, Group and WorkingDirectory to match where you put it.
+
+[Unit]
+Description=Device register
+Documentation=file:/opt/device-register/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=device-register
+Group=device-register
+WorkingDirectory=/opt/device-register
+ExecStart=/usr/bin/node src/server.mjs
+EnvironmentFile=/opt/device-register/.env
+
+Restart=always
+RestartSec=5
+
+# It serves one port and writes one file. Nothing else needs to be reachable.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/device-register
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=device-register
+
+[Install]
+WantedBy=multi-user.target

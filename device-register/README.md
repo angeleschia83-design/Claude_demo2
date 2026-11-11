@@ -84,6 +84,13 @@ like leavers when they were simply misspelled.
 Each holder's `label_source` column records which tier answered, so an inferred
 match can always be checked.
 
+## Keeping it running on a server
+
+The launchers run the register inside your login session, which is right for
+a laptop and wrong for a server: log off and it stops. `service/README.md`
+has the fix for both platforms — a scheduled task on Windows, a systemd unit
+on Linux. Start at boot, no login needed, restart on failure.
+
 ## Running it
 
 Requires Node 22.5 or newer, and Python 3 with `openpyxl` for the import step.
