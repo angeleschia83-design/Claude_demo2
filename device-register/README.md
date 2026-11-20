@@ -58,6 +58,36 @@ Anything ticked or unticked in the app overrides HR and survives every later
 import. Setting it back to agree with HR clears the override rather than
 recording a second opinion that happens to agree.
 
+**Ticking somebody resigned asks what happens to their hardware.** A pop-up
+lists every piece on their name, and each gets one of four answers: **To
+retrieve** (it stays on their name until it is back), **Available**,
+**Decommissioned** or **Defective** (each takes it off their name, the way
+*Take it back* does). *Set all to* fills every row at once. A ticket number is
+required and goes on every line it writes to the change log, and a note gets a
+line of its own. It is saved all together or not at all, and if somebody
+changed their hardware while it was open it says so and shows what is there
+now. Somebody who holds nothing gets the pop-up too, for the ticket.
+
+Saved, a notice under the bar says what was tagged To retrieve, and **Show
+them** opens Needs attention with those rows lit up. Their row on People says
+what is left: *2 to retrieve*, *1 not decided* or *all back*.
+
+*Mark resigned, decide later* marks them and leaves the hardware alone;
+*Cancel* changes nothing.
+
+**A leaver's record is locked.** Their row is greyed and read-only to editor
+links; only an admin can change it or untick Resigned, which asks for a ticket.
+Unticking undoes nothing else: hardware tagged To retrieve keeps that status,
+and the change log shows what was done.
+
+Needs attention then lists every leaver still holding hardware nobody has
+decided about (HR's leavers included, since they were never asked), each with
+*Decide assets*, and everything waiting to come back, oldest first, with
+*It's back*. The four answers write words from the status list: an admin
+picks which under **Settings, When someone resigns**; until then the closest
+word already on the list is used, and the plain word is added the first time
+nothing fits.
+
 Where the export has no Resigned sheet, every row reads as active and nobody
 is tagged.
 
@@ -83,13 +113,6 @@ like leavers when they were simply misspelled.
 
 Each holder's `label_source` column records which tier answered, so an inferred
 match can always be checked.
-
-## Keeping it running on a server
-
-The launchers run the register inside your login session, which is right for
-a laptop and wrong for a server: log off and it stops. `service/README.md`
-has the fix for both platforms — a scheduled task on Windows, a systemd unit
-on Linux. Start at boot, no login needed, restart on failure.
 
 ## Running it
 
@@ -138,6 +161,44 @@ npm start
 ```
 
 Then open `http://localhost:3000` and sign in with your `ADMIN_PASSWORD`.
+
+## The tabs
+
+One tab per job, under the bar with your name, the exports and Sign out:
+
+| Tab | What is on it |
+|---|---|
+| Dashboard | The totals, every laptop and iPad owned, what has changed lately, and the cards described below |
+| People | Every holder and what they hold, adding a person, possible duplicates |
+| Assets | Every asset, handing out and taking back, assets taken off the register |
+| Needs attention | Leavers whose hardware nobody has decided about, what is waiting to come back, what is worth putting right |
+| Import | A new workbook waiting to be looked at, changes from a colleague |
+| Access links | The links you have given out |
+| Change log | Every change, searchable by word and by date, and exportable |
+| Settings | Your password, the words people pick from, when someone resigns, deleting a person, records folded, how this works |
+
+A tab shows only when the person signed in can use something on it: a viewer
+link gets Dashboard, People, Assets and Settings; an editor link everything
+but Access links. The address names the tab (`#people`, `#assets`), so a tab
+can be bookmarked, and the page reopens on the last one used.
+
+**The dashboard is each person's own.** *Choose what you see* puts a box on
+every card to hide it and buttons to move it up or down. The filters at the
+top narrow every card that can take them: group and department choose people,
+asset type and status choose assets, and once people are chosen only the
+hardware in their hands counts. The period narrows *What has changed lately*.
+All of it is kept in that browser, so two people at two desks each see their
+own, and *Reset to the default* puts it back.
+
+**Laptops and iPads owned** counts every one on the register, handed out or
+not: how many are with people, how many are ready to hand out (at an
+*Available* status), and how many are elsewhere, with the statuses that
+makes up. The filters don't narrow it.
+
+**Nobody has to press refresh.** Every half minute, and on coming back to the
+tab, the page asks the server whether anything has changed (a few bytes) and
+reloads only when it has. It waits while somebody is typing in a cell or has
+a pop-up open.
 
 ## Giving someone a link
 
@@ -221,6 +282,35 @@ To take everything without looking — the old behaviour — run
 Anyone added in the app is never removed by an import, and neither is an asset
 added here.
 
+## Backups
+
+`register.db` is the only copy of every correction, hand-out and resign. Settings
+has **Backups**, for admins:
+
+- **Back up now** copies every record into `backups/` beside the database, as
+  `register-backup-YYYY-MM-DD-HHMMSS.db` by the server's clock. It uses SQLite's
+  own `VACUUM INTO`, so the copy is complete while the register keeps running.
+  The change log records who made it.
+- **Every week on its own:** when somebody opens the register and the newest
+  backup of any kind is a week old, it makes one (`…-auto.db`, by *Automatic
+  weekly backup* in the change log). No timer: nothing changes while nobody
+  opens it, and a backup made by hand starts the week again.
+- Every backup is listed, newest first, with **Download**, so one can be kept
+  off the server. The workbook import's own backups (`register-backup-…` beside
+  the database) are listed too.
+- The bar at the top says *Last backup* and when, to admins and editor links.
+  It turns red once the newest backup is a week old, or there is none, and an
+  admin can click it to get to the card.
+
+Putting one back is not a button, because it replaces every record: stop the
+register, rename `register.db` to `register-before-restore.db` (and delete any
+`register.db-wal` and `-shm`), copy the backup in as `register.db`, and start it
+again. The card spells this out too.
+
+Backups hold everything, contact details included, so only an admin can make,
+see or download them. Delete old ones from the folder by hand when the disk
+needs it.
+
 ## Data and privacy
 
 `register.db` holds names, job titles, departments, work email addresses,
@@ -297,7 +387,12 @@ scripts/import.mjs      those CSVs -> SQLite, keeping corrections
 src/db.mjs              schema, queries, the audited update
 src/auth.mjs            signed session cookies, admin password, invite links
 src/server.mjs          HTTP routes
-public/                 the page: index.html, app.js, styles.css
+src/resign.mjs          resigning somebody and deciding their hardware
+public/                 the page: index.html, app.js, assets.js, styles.css
+public/tabs.js          the tabs
+public/resign.js        the resign pop-up, Needs attention, the resign settings
+public/dashboard.mjs    the dashboard each person chooses (layout.mjs: its arithmetic)
+test/                   npm test: node:test against a register of made-up people
 Dockerfile              two-stage build, runs as the node user
 compose.yaml            the app, a volume for the database, data/ read-only
 ```
@@ -305,9 +400,17 @@ compose.yaml            the app, a volume for the database, data/ read-only
 ## Exports
 
 Both CSV and Excel, and both always carry **every** holder, whatever is
-filtered on screen. The Excel file adds a "Filtered view" sheet when a filter
-is on, so the narrowed list is there too without the full one being lost. Only
-the admin export includes network IDs and email addresses.
+filtered on screen. Only the admin export includes network IDs and email
+addresses — and so does the register the page loads, so an editor or viewer
+link cannot read them by any route.
+
+**Export for audit**, on the Assets tab, is the other way round: an Excel list
+of exactly the assets the tab is showing, so narrow it first (search, status,
+asset type, where it is) to audit one floor or one kind. Each row has the
+serial, model, status, who holds it and their department, and two empty
+columns, **Found** and **Notes**, for whoever walks round and checks. A
+second sheet says when it was taken, by whom, and what it was narrowed to.
+It has no contact details, so every link can take it.
 
 ## What the register tracks
 
@@ -336,17 +439,25 @@ piece of hardware.
 
 **Add an asset** is for hardware that arrives between workbooks. It is kept
 when the next workbook is imported, which would otherwise not know about it.
+A serial already in the register is refused with where it is (with whom, in
+stock, or taken off the register and ready to put back). One that differs only
+by dashes, spaces or dots (LAP001 against LAP-001) shows the likely match
+first, and *Add it anyway* adds it.
+
+Changing a status or a serial asks for a ticket number first; correcting a
+model, a host name or a remark does not. An asset waiting to come back shows
+*To retrieve since* the day it was asked for, and *Where: Waiting to come back*
+lists only those.
 
 ## Taking an asset off the register
 
-**Take it off** on any asset row that is in nobody's hands. It keeps the row
-and its history, drops it out of every count and list, and stays off through
-later imports — which is why it is offered instead of deleting: a deleted
-workbook row comes back at the next import. Admins put one back from the list
-under the table.
+**Take it off** on any asset row that is in nobody's hands, with a ticket
+number. It keeps the row and its history, drops it out of every count and
+list, and stays off through later imports. Admins put one back from the list
+under the table, with a ticket.
 
-**Delete it for good** appears only for an asset added here by mistake, which
-has no workbook row to come back from.
+**Delete it for good** is offered to an admin for any asset nobody holds. The
+change log keeps every line about it.
 
 Either way the asset must be in nobody's hands first, so the record of who had
 it is not lost along with it.
@@ -364,23 +475,26 @@ from every count. The list makes that impossible to repeat.
 
 A status also carries **can be handed out**. Statuses that read as hardware
 nobody can issue — retired, for repair, for checking — start with it off, and
-an admin can change any of them. Assigning something at one of those statuses
-stops and asks for a ticket number.
+an admin can change any of them.
+
+Each word shows how many assets use it, to an admin. A word nothing uses, and
+that is not chosen under *When someone resigns*, can be deleted, with a ticket.
 
 ## Handing hardware out
 
 Each asset row has **Hand it out** or **Take it back**.
 
-Handing out stops and asks for a ticket number when any of these is true:
+Both need a ticket number, and **the ticket is recorded against every line
+they write** in the change log. The last number typed is offered again, since
+a batch of hand-outs usually belongs to one request.
+
+Handing out spells it out on screen when any of these is true, and goes ahead
+with the ticket:
 
 - the asset is already assigned to somebody else;
 - the person already holds another asset of the same kind — a second laptop;
 - the asset's status is not one that can be handed out;
 - the person is marked resigned.
-
-The reason is spelled out on screen. Give a ticket number and it proceeds, and
-**the ticket is recorded against every line it writes** in the change log, so
-an exception can always be traced back to the decision that allowed it.
 
 Taking something back puts it to *Available* and clears the holder.
 
@@ -417,17 +531,26 @@ record kept.
 Folding, not deleting. The workbook goes on producing both spellings, so a
 deleted record returns at the next import with its hardware attached; a folded
 one does not. Nothing is destroyed, so an admin can put a record back from the
-sharing section — the hardware stays where it was moved to.
+Settings, *Records folded into another* — the hardware stays where it was moved to.
 
-**Deleting** works on a record typed into the register by mistake, while it
-holds nothing. Admins see those under *Records added here*. A record that came
-from the workbook cannot be deleted, and the register says why.
+**Deleting** is for an admin, with a ticket number, on anybody who holds
+nothing: Settings, *Delete a person*. The workbook is retired, so no import
+brings a deleted record back. The change log keeps every line about them.
 
 ## Adding somebody who joined between workbooks
 
-**Add a person**, under the holders table. They get an id of their own (`N001`
-and up), they are never removed by an import, and they can hold hardware
-straight away — hand it to them from the Assets section.
+**Add a person**, under the holders table, with a ticket number. They get an
+id of their own (`N001` and up), they are never removed by an import, and they
+can hold hardware straight away — hand it to them from the Assets section.
+
+A name already in the register, whatever its capitals or spacing, is refused
+with who that person is: their group, department, what they hold and whether
+they have left. A name the duplicate finder would pair with somebody (a letter
+out, surname first, a middle name more or less) lists the likely match and
+why; *Add them anyway* adds them when they really are two people.
+
+An admin deletes anybody who holds nothing from Settings, *Delete a person*,
+with a ticket. Their lines in the change log stay, under their name.
 
 Searching the holders for somebody who is not there offers the same thing on
 the spot: "Nobody here matches *Rina Mendoza*" with a button to add them under
@@ -472,22 +595,26 @@ damaged that way, so prefer it for anything more than a handful of changes.
 
 ## What has changed lately
 
-At the top of the page, for admins and editor links: the last eight changes,
-who made each one and how long ago, over a line that reads *4 changes today,
-11 this week by 3 people. 212 in all.* **See the whole log** jumps to the
-searchable log below.
+On the dashboard, for admins and editor links: the last eight changes, who
+made each one and how long ago, over a line that reads *4 changes today, 11
+this week by 3 people. 212 in all.* **See the whole log** opens the Change
+log tab.
 
 Every holder row also says who touched it last, and when, on hover.
 
 ## The change log
 
-Every correction, with who made it, when, and what the value was before. Admins
-and editor links can read and export it; viewer links cannot. Each entry names
-the person by the label on the link you gave them.
+Every correction, with who made it, when, what the value was before, and the
+ticket it was made under. Admins and editor links can read and export it;
+viewer links cannot. Each entry names the person by the label on the link you
+gave them.
+
+**From** and **To** narrow it to days, in your own time zone, and *Export the
+log* exports what they show. Nothing in the log can be deleted, by anybody.
 
 ## Worth putting right
 
-A section that lists what the inventory cannot be taken at face value on:
+On Needs attention, a section that lists what the inventory cannot be taken at face value on:
 serials listed twice, assets with no status, laptops and iPads with no model,
 statuses used once or twice, assets marked assigned with nobody named, holders
 with no type, holders on neither HR sheet, assets with no age.

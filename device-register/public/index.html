@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="The company register of who holds which laptop, iPad and accessory, kept by IT.">
 <title>Device register</title>
-<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/styles.css?v=5.2.0">
+<script src="/theme.js?v=5.2.0"></script>
 </head>
 <body>
 
@@ -13,6 +15,9 @@
     <h1>Device register</h1>
     <p class="lede">Who holds which company laptop or iPad. Open the link your IT team sent you, or sign in below if you are IT.</p>
     <form id="login">
+      <label class="field"><span>Your name <small>(optional: it names you in the change log)</small></span>
+        <input class="txt" id="who" type="text" autocomplete="name" maxlength="40">
+      </label>
       <label class="field"><span>Admin password</span>
         <input class="txt" id="password" type="password" autocomplete="current-password" required>
       </label>
@@ -29,301 +34,521 @@
       <div class="actions">
         <span class="whoami" id="whoami"></span>
         <span class="whoami" id="version" title="Version of the register"></span>
+        <button type="button" class="backup-stamp" id="last-backup" hidden></button>
+        <button type="button" class="btn btn-quiet btn-small" id="theme">Dark mode</button>
         <button type="button" class="btn btn-quiet btn-small" id="export">Export CSV</button>
         <button type="button" class="btn btn-quiet btn-small" id="export-xlsx">Export Excel</button>
         <button type="button" class="btn btn-quiet btn-small" id="logout">Sign out</button>
       </div>
     </div>
-    <p class="lede">Everyone Asset Central Inventory names on an active laptop or iPad. Click any cell to correct it — a name, a position, a serial — and it saves for everyone at once.</p>
     <p class="saveline" id="saveline" role="status" aria-live="polite"></p>
+    <div class="notice" id="notice" role="status" aria-live="polite" hidden>
+      <p id="notice-text"></p>
+      <button type="button" class="btn btn-small" id="notice-show">Show them</button>
+      <button type="button" class="btn btn-quiet btn-small" id="notice-close">Dismiss</button>
+    </div>
   </header>
 
-  <section class="tiles" aria-label="Totals">
-    <div class="tile"><span class="k">People holding a device</span><span class="v" id="t-people">—</span><span class="s" id="t-people-s">&nbsp;</span></div>
-    <div class="tile"><span class="k">Laptops out</span><span class="v" id="t-lap">—</span><span class="s" id="t-lap-s">&nbsp;</span></div>
-    <div class="tile"><span class="k">iPads out</span><span class="v" id="t-ipd">—</span><span class="s" id="t-ipd-s">&nbsp;</span></div>
-    <div class="tile"><span class="k">Holding both</span><span class="v" id="t-both">—</span><span class="s">A laptop and an iPad</span></div>
-    <div class="tile tile-warn"><span class="k">Marked resigned</span><span class="v" id="t-res">—</span><span class="s" id="t-res-s">&nbsp;</span></div>
-  </section>
+  <nav class="tabs" role="tablist" id="tabs" aria-label="Parts of the register">
+    <a role="tab" id="tab-dashboard" href="#dashboard" aria-controls="panel-dashboard" aria-selected="false" tabindex="-1">Dashboard</a>
+    <a role="tab" id="tab-people" href="#people" aria-controls="panel-people" aria-selected="false" tabindex="-1">People</a>
+    <a role="tab" id="tab-assets" href="#assets" aria-controls="panel-assets" aria-selected="false" tabindex="-1">Assets</a>
+    <a role="tab" id="tab-attention" href="#attention" aria-controls="panel-attention" aria-selected="false" tabindex="-1">Needs attention <span class="tab-count"></span></a>
+    <a role="tab" id="tab-import" href="#import" aria-controls="panel-import" aria-selected="false" tabindex="-1">Import</a>
+    <a role="tab" id="tab-links" href="#links" aria-controls="panel-links" aria-selected="false" tabindex="-1">Access links</a>
+    <a role="tab" id="tab-log" href="#log" aria-controls="panel-log" aria-selected="false" tabindex="-1">Change log</a>
+    <a role="tab" id="tab-settings" href="#settings" aria-controls="panel-settings" aria-selected="false" tabindex="-1">Settings</a>
+  </nav>
 
-  <section class="card" id="recent-card" aria-label="Recent activity" hidden>
-    <div class="headrow">
-      <h2>What has changed lately</h2>
-      <button type="button" class="btn btn-quiet btn-small" id="recent-all">See the whole log</button>
-    </div>
-    <p class="muted" id="recent-line">&nbsp;</p>
-    <div class="recent" id="recent"></div>
-  </section>
-
-  <section class="cols" aria-label="Breakdowns">
-    <div class="card">
-      <h2>What each group holds</h2>
-      <p class="muted">Bar width is the share of that group. Set a type below and these move.</p>
-      <ul class="legend">
-        <li><span class="key key-laptop"></span>Laptop only</li>
-        <li><span class="key key-ipad"></span>iPad only</li>
-        <li><span class="key key-both"></span>Both</li>
-      </ul>
-      <div class="bars" id="mix"></div>
-    </div>
-    <div class="card">
-      <h2>The fleet in people's hands</h2>
-      <p class="muted">Every active laptop and iPad, counted by model.</p>
-      <div class="fleet" id="fleet"></div>
-    </div>
-  </section>
-
-  <section class="card" aria-label="Holders">
-    <h2>Every holder and what they hold</h2>
-    <p class="muted">Click a cell to correct it, Enter to save, Escape to cancel. A corrected cell is marked, and ↺ puts the workbook’s value back. Click a heading to sort.</p>
-    <div class="controls">
-      <label class="field"><span>Search</span>
-        <input class="txt search" id="q" type="search" placeholder="Name, serial, model…" aria-label="Search holders">
-      </label>
-      <div class="field"><span>Type</span>
-        <div class="chips" role="group" aria-label="Filter by type">
-          <button type="button" class="chip" data-f="type" data-v="" aria-pressed="true">All</button>
-          <button type="button" class="chip" data-f="type" data-v="Sales" aria-pressed="false">Sales</button>
-          <button type="button" class="chip" data-f="type" data-v="HO" aria-pressed="false">HO</button>
-          <button type="button" class="chip" data-f="type" data-v="Unknown" aria-pressed="false">No type</button>
-        </div>
+  <div role="tabpanel" id="panel-dashboard" aria-labelledby="tab-dashboard" class="panel" hidden>
+    <section class="dash-tools" id="dash-tools" aria-label="What the dashboard shows">
+      <div class="controls">
+        <label class="field"><span>Group</span>
+          <select class="txt" id="f-group">
+            <option value="">Everyone</option>
+            <option value="Sales">Sales</option>
+            <option value="HO">Head office</option>
+            <option value="Unknown">No type set</option>
+          </select>
+        </label>
+        <label class="field"><span>Department</span>
+          <select class="txt" id="f-dept"><option value="">Every department</option></select>
+        </label>
+        <label class="field"><span>Asset type</span>
+          <select class="txt" id="f-type"><option value="">Every asset type</option></select>
+        </label>
+        <label class="field"><span>Status</span>
+          <select class="txt" id="f-status"><option value="">Every status</option></select>
+        </label>
+        <label class="field"><span>Changes made in</span>
+          <select class="txt" id="f-period">
+            <option value="7">the last 7 days</option>
+            <option value="30">the last 30 days</option>
+            <option value="90">the last 90 days</option>
+            <option value="all" selected>any time</option>
+          </select>
+        </label>
+        <button type="button" class="btn btn-quiet btn-small" id="dash-clear" hidden>Clear the filters</button>
+        <button type="button" class="btn btn-quiet btn-small" id="dash-choose">Choose what you see</button>
       </div>
-      <div class="field"><span>Device</span>
-        <div class="chips" role="group" aria-label="Filter by device">
-          <button type="button" class="chip" data-f="dev" data-v="" aria-pressed="true">All</button>
-          <button type="button" class="chip" data-f="dev" data-v="Laptop only" aria-pressed="false">Laptop</button>
-          <button type="button" class="chip" data-f="dev" data-v="iPad only" aria-pressed="false">iPad</button>
-          <button type="button" class="chip" data-f="dev" data-v="Both" aria-pressed="false">Both</button>
-          <button type="button" class="chip" data-f="dev" data-v="No device" aria-pressed="false">None</button>
-        </div>
+      <p class="count" id="dash-line" role="status" aria-live="polite">&nbsp;</p>
+      <div class="controls" id="dash-editing" hidden>
+        <p class="muted">Untick a card to hide it, or move it up or down. This browser remembers it.</p>
+        <button type="button" class="btn btn-small" id="dash-done">Done</button>
+        <button type="button" class="btn btn-quiet btn-small" id="dash-reset">Reset to the default</button>
       </div>
-      <div class="field"><span>Status</span>
-        <div class="chips" role="group" aria-label="Filter by status">
-          <button type="button" class="chip" data-f="res" data-v="" aria-pressed="true">All</button>
-          <button type="button" class="chip" data-f="res" data-v="y" aria-pressed="false">Resigned</button>
-        </div>
-      </div>
-    </div>
-    <div class="controls">
-      <button type="button" class="btn" id="h-add">Add a person</button>
-      <span class="muted">Somebody who joined since the last workbook. They can hold hardware
-        straight away, and the next workbook that knows them joins up with their record.</span>
-    </div>
-    <p class="count" id="count">&nbsp;</p>
-    <div class="scroll">
-      <table>
-        <thead><tr id="head"></tr></thead>
-        <tbody id="rows"><tr><td colspan="11" class="empty">Loading…</td></tr></tbody>
-      </table>
-    </div>
-  </section>
+    </section>
 
-  <section class="card" id="summary-card" aria-label="Asset summary">
-    <h2>Every asset, not just the ones people hold</h2>
-    <p class="muted">Counted from the inventory itself. A model, status or asset type nobody has
-      seen before appears here on its own — nothing has to be added first.</p>
-    <p class="count" id="sum-line">&nbsp;</p>
+    <div class="dash-grid" id="dash-grid">
+    <section class="tiles dash-card" data-card="totals" aria-label="Totals">
+      <div class="tile"><span class="k">People holding a device</span><span class="v" id="t-people">…</span><span class="s" id="t-people-s">&nbsp;</span></div>
+      <div class="tile"><span class="k">Laptops out</span><span class="v" id="t-lap">…</span><span class="s" id="t-lap-s">&nbsp;</span></div>
+      <div class="tile"><span class="k">iPads out</span><span class="v" id="t-ipd">…</span><span class="s" id="t-ipd-s">&nbsp;</span></div>
+      <div class="tile"><span class="k">Holding both</span><span class="v" id="t-both">…</span><span class="s">A laptop and an iPad</span></div>
+      <div class="tile tile-warn"><span class="k">Marked resigned</span><span class="v" id="t-res">…</span><span class="s" id="t-res-s">&nbsp;</span></div>
+      <p class="muted dash-note dash-note-row" hidden>Counted by person: the asset type and status filters don’t apply here.</p>
+    </section>
 
-    <div class="scroll scroll-24">
-      <table id="sum-type"><thead><tr id="sum-type-head"></tr></thead><tbody id="sum-type-body"></tbody></table>
-    </div>
-
-    <div class="controls">
-      <label class="field"><span>Break down by model</span>
-        <select class="txt" id="sum-pick"></select>
-      </label>
-    </div>
-    <div class="scroll scroll-22">
-      <table id="sum-model"><thead><tr id="sum-model-head"></tr></thead><tbody id="sum-model-body"></tbody></table>
-    </div>
-
-    <h2>Age of the assets</h2>
-    <p class="muted">For the asset type chosen above. Anything with no age recorded gets its own column
-      rather than being left out.</p>
-    <div class="scroll scroll-18">
-      <table id="sum-age"><thead><tr id="sum-age-head"></tr></thead><tbody id="sum-age-body"></tbody></table>
-    </div>
-
-  </section>
-
-  <section class="card" id="problems-card" aria-label="Worth putting right" hidden>
-    <h2>Worth putting right</h2>
-    <p class="muted">Everything in the inventory that cannot be taken at face value. Counted from the
-      rows, so the list keeps itself up to date.</p>
-    <div class="cols" id="problems"></div>
-  </section>
-
-  <section class="card" id="assets-card" aria-label="Assets" hidden>
-    <h2>Assets</h2>
-    <p class="muted">Every serial in the inventory, not only the ones in somebody's hands. Click a cell
-      to correct it. Status, asset type and model are picked from a list, so the same thing is spelled
-      one way everywhere.</p>
-    <div class="controls">
-      <label class="field"><span>Search</span>
-        <input class="txt search" id="a-q" type="search" placeholder="Serial, model, holder…" aria-label="Search assets">
-      </label>
-      <label class="field"><span>Status</span><select class="txt" id="a-status"></select></label>
-      <label class="field"><span>Asset type</span><select class="txt" id="a-type"></select></label>
-      <label class="field"><span>Where it is</span>
-        <select class="txt" id="a-held">
-          <option value="">Anywhere</option>
-          <option value="yes">Out with somebody</option>
-          <option value="no">In stock</option>
-        </select>
-      </label>
-      <button type="button" class="btn" id="a-add">Add an asset</button>
-    </div>
-
-    <form class="newrow" id="a-new" hidden>
-      <label class="field"><span>Serial</span><input class="txt" id="n-serial" required maxlength="120"></label>
-      <label class="field"><span>Kind</span>
-        <select class="txt" id="n-kind">
-          <option value="Laptop">Laptop</option>
-          <option value="iPad">iPad</option>
-          <option value="Other" selected>Other</option>
-        </select>
-      </label>
-      <label class="field"><span>Asset type</span><select class="txt" id="n-type"></select></label>
-      <label class="field"><span>Model</span><select class="txt" id="n-model"></select></label>
-      <label class="field"><span>Status</span><select class="txt" id="n-status"></select></label>
-      <button type="submit" class="btn">Add it</button>
-      <button type="button" class="btn btn-quiet" id="n-cancel">Cancel</button>
-    </form>
-
-    <p class="count" id="a-count">&nbsp;</p>
-    <details id="gone-box">
-      <summary>Assets taken off the register</summary>
-      <div id="gone"></div>
-    </details>
-    <div class="scroll scroll-32">
-      <table>
-        <thead><tr id="a-head"></tr></thead>
-        <tbody id="a-body"></tbody>
-      </table>
-    </div>
-  </section>
-
-  <section class="card" id="lists-card" aria-label="The words people pick from" hidden>
-    <h2>The words people pick from</h2>
-    <p class="muted">Status, asset type and model are picked from these lists rather than typed, which
-      is what stops one thing being counted as two. Adding a word is deliberate and is recorded. A
-      status that is not hardware to hand out stops an assignment unless a ticket number is given.</p>
-    <div class="cols" id="lists"></div>
-  </section>
-
-  <section class="card" id="workbook-card" aria-label="From the workbook" hidden>
-    <h2>From the workbook</h2>
-    <p class="muted" id="wb-note"></p>
-    <p class="count" id="wb-line">&nbsp;</p>
-    <div id="wb-result" hidden>
-      <div class="scroll scroll-26">
-        <table>
-          <thead><tr>
-            <th><input type="checkbox" id="wb-all" aria-label="Tick everything that does not undo a correction"></th>
-            <th>Row</th><th>Field</th><th>The register shows</th><th>The workbook says</th><th></th>
-          </tr></thead>
-          <tbody id="wb-body"></tbody>
+    <section class="card dash-card" data-card="inventory" aria-label="Laptops and iPads owned">
+      <h2>Laptops and iPads owned</h2>
+      <p class="muted">Every laptop and iPad on the register, handed out or not.</p>
+      <p class="muted dash-note" hidden>Every laptop and iPad: the filters above don’t apply here.</p>
+      <div class="scroll">
+        <table class="inv">
+          <thead><tr><th><span class="sr-only">Kind</span></th><th class="num">Owned</th><th class="num">With people</th><th class="num">Ready to hand out</th><th class="num">Elsewhere</th></tr></thead>
+          <tbody id="d-inventory"></tbody>
         </table>
       </div>
-      <div class="controls">
-        <button type="button" class="btn" id="wb-apply">Take the ticked ones</button>
-        <button type="button" class="btn btn-quiet btn-small" id="wb-discard">Put this workbook aside</button>
-      </div>
-    </div>
-  </section>
+      <ul class="plain-list" id="d-inventory-notes"></ul>
+    </section>
 
-  <section class="card" id="merge-card" aria-label="Changes from a colleague" hidden>
-    <h2>Changes from a colleague</h2>
-    <p class="muted">Whoever you sent the offline copy to can hand their corrections back as a block of
-      text or as a file. Drop it in here and you are shown exactly what it would change, line by line,
-      before anything is applied. Nothing is written until you tick it.</p>
-    <label class="field block"><span>What they sent you</span>
-      <textarea class="txt" id="merge-text" rows="4"
-        placeholder="Paste their whole message, including the long line after &quot;For IT to merge&quot;…"></textarea>
-    </label>
-    <div class="controls">
-      <button type="button" class="btn" id="merge-check">See what it would change</button>
-      <button type="button" class="btn btn-quiet btn-small" id="merge-pick">Open their file instead</button>
-      <input id="merge-file" type="file" accept=".txt,.json,text/plain,application/json" hidden>
-      <button type="button" class="btn btn-quiet btn-small" id="merge-clear">Clear</button>
-    </div>
-    <p class="count" id="merge-line">&nbsp;</p>
-    <div id="merge-result" hidden>
+    <section class="card dash-card" id="recent-card" data-card="recent" aria-label="Recent activity" hidden>
+      <div class="headrow">
+        <h2>What has changed lately</h2>
+        <button type="button" class="btn btn-quiet btn-small" id="recent-all">See the whole log</button>
+      </div>
+      <p class="muted" id="recent-line">&nbsp;</p>
+      <p class="muted dash-note" hidden>Every change, whoever it is about: only the period above applies here.</p>
+      <div class="recent" id="recent"></div>
+    </section>
+
+    <section class="card dash-card" data-card="mix" aria-label="What each group holds">
+        <h2>What each group holds</h2>
+        <p class="muted dash-note" hidden>Counted by person: the asset type and status filters don’t apply here.</p>
+        <p class="muted">Bar width is the share of that group. Set a type below and these move.</p>
+        <ul class="legend">
+          <li><span class="key key-laptop"></span>Laptop only</li>
+          <li><span class="key key-ipad"></span>iPad only</li>
+          <li><span class="key key-both"></span>Both</li>
+        </ul>
+        <div class="bars" id="mix"></div>
+    </section>
+
+    <section class="card dash-card" data-card="fleet" aria-label="The fleet in people’s hands">
+        <h2>The fleet in people’s hands</h2>
+        <p class="muted">Every active laptop and iPad, counted by model.</p>
+        <div class="fleet" id="fleet"></div>
+    </section>
+
+    <section class="card dash-card" data-card="by-status" aria-label="Assets by status">
+      <h2>Assets by status</h2>
+      <p class="muted">Every asset on the register, counted by its status.</p>
+      <div class="fleet" id="d-status"></div>
+    </section>
+
+    <section class="card dash-card" data-card="by-department" aria-label="By department">
+      <h2>By department</h2>
+      <p class="muted">The people in each department, and the hardware in their hands.</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Department</th><th class="num">People</th><th class="num">Holding something</th><th class="num">Pieces held</th></tr></thead>
+          <tbody id="d-dept"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card dash-card" data-card="to-retrieve" aria-label="To retrieve">
+      <h2>To retrieve</h2>
+      <p class="count" id="d-retrieve-line">&nbsp;</p>
+      <ul class="plain-list" id="d-retrieve"></ul>
+    </section>
+
+    <section class="card dash-card" data-card="defective" aria-label="Defective">
+      <h2>Defective</h2>
+      <p class="count" id="d-defective-line">&nbsp;</p>
+      <ul class="plain-list" id="d-defective"></ul>
+    </section>
+
+    <section class="card dash-card" data-card="undecided" aria-label="Resigned, not decided">
+      <h2>Resigned, not decided</h2>
+      <p class="muted dash-note" hidden>Counted by person: the asset type and status filters don’t apply here.</p>
+      <p class="count" id="d-undecided-line">&nbsp;</p>
+      <ul class="plain-list" id="d-undecided"></ul>
+    </section>
+
+    <section class="card dash-card" id="summary-card" data-card="summary" aria-label="Asset summary">
+      <h2>Every asset, not just the ones people hold</h2>
+      <p class="muted">Counted from the inventory itself. A model, status or asset type nobody has
+        seen before appears here on its own: nothing has to be added first.</p>
+      <p class="count" id="sum-line">&nbsp;</p>
+      <p class="muted dash-note" hidden>All assets: the filters above don’t apply here.</p>
+
       <div class="scroll scroll-24">
-        <table>
-          <thead><tr>
-            <th><input type="checkbox" id="merge-all" aria-label="Tick every change that can be applied"></th>
-            <th>Holder</th><th>Field</th><th>In the register now</th><th>They say</th><th></th>
-          </tr></thead>
-          <tbody id="merge-body"></tbody>
-        </table>
+        <table id="sum-type"><thead><tr id="sum-type-head"></tr></thead><tbody id="sum-type-body"></tbody></table>
+      </div>
+
+      <div class="controls">
+        <label class="field"><span>Break down by model</span>
+          <select class="txt" id="sum-pick"></select>
+        </label>
+      </div>
+      <div class="scroll scroll-22">
+        <table id="sum-model"><thead><tr id="sum-model-head"></tr></thead><tbody id="sum-model-body"></tbody></table>
+      </div>
+
+      <h2>Age of the assets</h2>
+      <p class="muted">For the asset type chosen above. Anything with no age recorded gets its own column
+        rather than being left out.</p>
+      <div class="scroll scroll-18">
+        <table id="sum-age"><thead><tr id="sum-age-head"></tr></thead><tbody id="sum-age-body"></tbody></table>
+      </div>
+
+    </section>
+    </div>
+  </div>
+
+  <div role="tabpanel" id="panel-people" aria-labelledby="tab-people" class="panel" hidden>
+    <section class="card" aria-label="Holders">
+      <h2>Every holder and what they hold</h2>
+      <p class="lede">Everyone Asset Central Inventory names on an active laptop or iPad. Click any cell to correct it (a name, a position, a serial) and it saves for everyone at once.</p>
+      <p class="muted">Click a cell to correct it, Enter to save, Escape to cancel. A corrected cell is marked, and ↺ puts the workbook’s value back. Click a heading to sort.</p>
+      <div class="controls">
+        <label class="field"><span>Search</span>
+          <input class="txt search" id="q" type="search" placeholder="Name, serial, model…" aria-label="Search holders">
+        </label>
+        <div class="field"><span>Type</span>
+          <div class="chips" role="group" aria-label="Filter by type">
+            <button type="button" class="chip" data-f="type" data-v="" aria-pressed="true">All</button>
+            <button type="button" class="chip" data-f="type" data-v="Sales" aria-pressed="false">Sales</button>
+            <button type="button" class="chip" data-f="type" data-v="HO" aria-pressed="false">HO</button>
+            <button type="button" class="chip" data-f="type" data-v="Unknown" aria-pressed="false">No type</button>
+          </div>
+        </div>
+        <div class="field"><span>Device</span>
+          <div class="chips" role="group" aria-label="Filter by device">
+            <button type="button" class="chip" data-f="dev" data-v="" aria-pressed="true">All</button>
+            <button type="button" class="chip" data-f="dev" data-v="Laptop only" aria-pressed="false">Laptop</button>
+            <button type="button" class="chip" data-f="dev" data-v="iPad only" aria-pressed="false">iPad</button>
+            <button type="button" class="chip" data-f="dev" data-v="Both" aria-pressed="false">Both</button>
+            <button type="button" class="chip" data-f="dev" data-v="No device" aria-pressed="false">None</button>
+          </div>
+        </div>
+        <div class="field"><span>Status</span>
+          <div class="chips" role="group" aria-label="Filter by status">
+            <button type="button" class="chip" data-f="res" data-v="" aria-pressed="true">All</button>
+            <button type="button" class="chip" data-f="res" data-v="y" aria-pressed="false">Resigned</button>
+          </div>
+        </div>
       </div>
       <div class="controls">
-        <button type="button" class="btn" id="merge-apply">Apply the ticked changes</button>
+        <button type="button" class="btn" id="h-add">Add a person</button>
+        <span class="muted">Somebody who joined since the last workbook. They can hold hardware
+          straight away, and the next workbook that knows them joins up with their record.</span>
       </div>
-    </div>
-  </section>
+      <p class="count" id="count">&nbsp;</p>
+      <div class="scroll sticky-head">
+        <table>
+          <thead><tr id="head"></tr></thead>
+          <tbody id="rows"><tr><td colspan="11" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
 
-  <section class="card" id="log-card" aria-label="Change log" hidden>
-    <h2>Change log</h2>
-    <p class="muted" id="log-note"></p>
-    <div class="controls">
-      <label class="field"><span>Search the log</span>
-        <input class="txt" id="log-q" type="search" placeholder="Name, serial, ticket, who made it…" aria-label="Search the change log">
+    <section class="card" id="dupes-card" aria-label="Possible duplicate people" hidden>
+      <div id="dupes"></div>
+    </section>
+  </div>
+
+  <div role="tabpanel" id="panel-assets" aria-labelledby="tab-assets" class="panel" hidden>
+    <section class="card" id="assets-card" aria-label="Assets" hidden>
+      <h2>Assets</h2>
+      <p class="muted">Every serial in the inventory, not only the ones in somebody’s hands. Click a cell
+        to correct it. Status, asset type and model are picked from a list, so the same thing is spelled
+        one way everywhere.</p>
+      <div class="controls">
+        <label class="field"><span>Search</span>
+          <input class="txt search" id="a-q" type="search" placeholder="Serial, model, holder…" aria-label="Search assets">
+        </label>
+        <label class="field"><span>Status</span><select class="txt" id="a-status"></select></label>
+        <label class="field"><span>Asset type</span><select class="txt" id="a-type"></select></label>
+        <label class="field"><span>Where it is</span>
+          <select class="txt" id="a-held">
+            <option value="">Anywhere</option>
+            <option value="yes">Out with somebody</option>
+            <option value="no">In stock</option>
+            <option value="retrieve">Waiting to come back</option>
+          </select>
+        </label>
+        <button type="button" class="btn" id="a-add">Add an asset</button>
+        <button type="button" class="btn btn-quiet" id="a-audit" title="An Excel list of the assets shown below, with empty Found and Notes columns to fill in while checking">Export for audit</button>
+      </div>
+
+      <form class="newrow" id="a-new" hidden>
+        <label class="field"><span>Serial</span><input class="txt" id="n-serial" required maxlength="120"></label>
+        <label class="field"><span>Kind</span>
+          <select class="txt" id="n-kind">
+            <option value="Laptop">Laptop</option>
+            <option value="iPad">iPad</option>
+            <option value="Other" selected>Other</option>
+          </select>
+        </label>
+        <label class="field"><span>Asset type</span><select class="txt" id="n-type"></select></label>
+        <label class="field"><span>Model</span><select class="txt" id="n-model"></select></label>
+        <label class="field"><span>Status</span><select class="txt" id="n-status"></select></label>
+        <label class="field"><span>Invoice date <em class="hint">optional</em></span><input class="txt" type="date" id="n-invoice"></label>
+        <label class="field"><span>Purchase date <em class="hint">optional</em></span><input class="txt" type="date" id="n-bought"></label>
+        <label class="field"><span>Ticket number</span><input class="txt" id="n-ticket" required maxlength="60" placeholder="INC-1234"></label>
+        <p class="warnline dupe-note" id="n-dupe" role="alert" hidden></p>
+        <button type="submit" class="btn" id="n-go">Add it</button>
+        <button type="button" class="btn btn-quiet" id="n-cancel">Cancel</button>
+      </form>
+
+      <p class="count" id="a-count">&nbsp;</p>
+      <details id="gone-box">
+        <summary>Assets taken off the register</summary>
+        <div id="gone"></div>
+      </details>
+      <div class="scroll scroll-32 sticky-head">
+        <table>
+          <thead><tr id="a-head"></tr></thead>
+          <tbody id="a-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div role="tabpanel" id="panel-attention" aria-labelledby="tab-attention" class="panel" hidden>
+    <section class="card" id="undecided-card" aria-label="Resigned, hardware not decided" hidden>
+      <h2>Resigned, hardware not decided</h2>
+      <p class="muted">People marked resigned who still hold hardware nobody has decided about. That
+        includes leavers from HR’s list, who were never asked.</p>
+      <div id="undecided"></div>
+    </section>
+
+    <section class="card" id="retrieve-card" aria-label="To retrieve" hidden>
+      <h2>To retrieve</h2>
+      <p class="muted">Hardware still with somebody who has left, waiting to come back. The longest
+        waiting comes first.</p>
+      <p class="count" id="retrieve-line">&nbsp;</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Serial</th><th>What it is</th><th>Who has it</th><th>Asked for</th><th><span class="sr-only">Actions</span></th></tr></thead>
+          <tbody id="retrieve-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card" id="problems-card" aria-label="Worth putting right" hidden>
+      <h2>Worth putting right</h2>
+      <p class="muted">Everything in the inventory that cannot be taken at face value. Counted from the
+        rows, so the list keeps itself up to date.</p>
+      <div class="cols" id="problems"></div>
+    </section>
+  </div>
+
+  <div role="tabpanel" id="panel-import" aria-labelledby="tab-import" class="panel" hidden>
+    <section class="card" id="workbook-card" aria-label="From the workbook" hidden>
+      <h2>From the workbook</h2>
+      <p class="muted" id="wb-note"></p>
+      <p class="count" id="wb-line">&nbsp;</p>
+      <div id="wb-result" hidden>
+        <div class="scroll scroll-26 sticky-head">
+          <table>
+            <thead><tr>
+              <th><input type="checkbox" id="wb-all" aria-label="Tick everything that does not undo a correction"></th>
+              <th>Row</th><th>Field</th><th>The register shows</th><th>The workbook says</th><th></th>
+            </tr></thead>
+            <tbody id="wb-body"></tbody>
+          </table>
+        </div>
+        <div class="controls">
+          <button type="button" class="btn" id="wb-apply">Take the ticked ones</button>
+          <button type="button" class="btn btn-quiet btn-small" id="wb-discard">Put this workbook aside</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="merge-card" aria-label="Changes from a colleague" hidden>
+      <h2>Changes from a colleague</h2>
+      <p class="muted">Whoever you sent the offline copy to can hand their corrections back as a block of
+        text or as a file. Drop it in here and you are shown exactly what it would change, line by line,
+        before anything is applied. Nothing is written until you tick it.</p>
+      <label class="field block"><span>What they sent you</span>
+        <textarea class="txt" id="merge-text" rows="4"
+          placeholder="Paste their whole message, including the long line after &quot;For IT to merge&quot;…"></textarea>
       </label>
-      <button type="button" class="btn btn-quiet btn-small" id="log-export">Export the log</button>
-    </div>
-    <p class="count" id="log-count">&nbsp;</p>
-    <div class="scroll scroll-26">
-      <table>
-        <thead><tr><th>When</th><th>Who</th><th>Holder or asset</th><th>Field</th><th>Was</th><th>Became</th><th>Ticket</th></tr></thead>
-        <tbody id="log-body"></tbody>
-      </table>
-    </div>
-  </section>
+      <div class="controls">
+        <button type="button" class="btn" id="merge-check">See what it would change</button>
+        <button type="button" class="btn btn-quiet btn-small" id="merge-pick">Open their file instead</button>
+        <input id="merge-file" type="file" accept=".txt,.json,text/plain,application/json" hidden>
+        <button type="button" class="btn btn-quiet btn-small" id="merge-clear">Clear</button>
+      </div>
+      <p class="count" id="merge-line">&nbsp;</p>
+      <div id="merge-result" hidden>
+        <div class="scroll scroll-24">
+          <table>
+            <thead><tr>
+              <th><input type="checkbox" id="merge-all" aria-label="Tick every change that can be applied"></th>
+              <th>Holder</th><th>Field</th><th>In the register now</th><th>They say</th><th></th>
+            </tr></thead>
+            <tbody id="merge-body"></tbody>
+          </table>
+        </div>
+        <div class="controls">
+          <button type="button" class="btn" id="merge-apply">Apply the ticked changes</button>
+        </div>
+      </div>
+    </section>
+  </div>
 
-  <section class="card admin" id="admin" aria-label="Sharing and history" hidden>
-    <h2>Links you have given out</h2>
-    <p class="muted">An editor link lets whoever opens it make corrections. A viewer link lets them look only. Neither needs an account.</p>
-    <p class="muted" id="link-note"></p>
-    <div class="invite-row">
-      <label class="field"><span>Who is it for</span>
-        <input class="txt" id="invite-label" type="text" placeholder="Cebu branch admin" maxlength="80">
+  <div role="tabpanel" id="panel-links" aria-labelledby="tab-links" class="panel" hidden>
+    <section class="card admin" id="admin" aria-label="Links you have given out" data-admin hidden>
+      <h2>Links you have given out</h2>
+      <p class="muted">An editor link lets whoever opens it make corrections. A viewer link lets them look only. Neither needs an account.</p>
+      <p class="muted" id="link-note"></p>
+      <div class="invite-row">
+        <label class="field"><span>Who is it for</span>
+          <input class="txt" id="invite-label" type="text" placeholder="Cebu branch admin" maxlength="80">
+        </label>
+        <label class="field"><span>What they may do</span>
+          <select class="txt" id="invite-role">
+            <option value="editor">Make corrections</option>
+            <option value="viewer">Look only</option>
+          </select>
+        </label>
+        <button type="button" class="btn" id="invite-make">Create link</button>
+      </div>
+      <div class="links" id="links"></div>
+    </section>
+  </div>
+
+  <div role="tabpanel" id="panel-log" aria-labelledby="tab-log" class="panel" hidden>
+    <section class="card" id="log-card" aria-label="Change log" hidden>
+      <h2>Change log</h2>
+      <p class="muted" id="log-note"></p>
+      <div class="controls">
+        <label class="field"><span>Search the log</span>
+          <input class="txt" id="log-q" type="search" placeholder="Name, serial, ticket, who made it…" aria-label="Search the change log">
+        </label>
+        <label class="field"><span>From</span><input class="txt" id="log-from" type="date"></label>
+        <label class="field"><span>To</span><input class="txt" id="log-to" type="date"></label>
+        <button type="button" class="btn btn-quiet btn-small" id="log-clear" hidden>Any date</button>
+        <button type="button" class="btn btn-quiet btn-small" id="log-export">Export the log</button>
+      </div>
+      <p class="count" id="log-count">&nbsp;</p>
+      <div class="scroll scroll-26 sticky-head">
+        <table>
+          <thead><tr><th>When</th><th>Who</th><th>Holder or asset</th><th>Field</th><th>Was</th><th>Became</th><th>Ticket</th></tr></thead>
+          <tbody id="log-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div role="tabpanel" id="panel-settings" aria-labelledby="tab-settings" class="panel" hidden>
+    <section class="card admin" id="backup-card" aria-label="Backups" data-admin hidden>
+      <h2>Backups</h2>
+      <p class="muted">A copy of every record in the register: people, assets, corrections, resigns
+        and the whole change log. It is made while the register keeps running and kept on the server
+        in <code id="backup-folder"></code>. Make one before a big change and at the end of each week,
+        and download one now and then to keep somewhere other than this server. The register also
+        makes one by itself every week: when it is opened and the newest backup is a week old.</p>
+      <div class="controls">
+        <button type="button" class="btn" id="backup-make">Back up now</button>
+      </div>
+      <p class="saveline" id="backup-line" role="status" aria-live="polite"></p>
+      <div id="backup-list"></div>
+      <details class="restore">
+        <summary>Putting a backup back</summary>
+        <ol>
+          <li>Stop the register (STOP-RUNNING-ON-SERVER.bat, or end the task in Task Scheduler).</li>
+          <li>In the register’s folder, rename <code>register.db</code> to <code>register-before-restore.db</code>,
+            and delete <code>register.db-wal</code> and <code>register.db-shm</code> if they are there.</li>
+          <li>Copy the backup you want into the same folder and rename it <code>register.db</code>.</li>
+          <li>Start the register again. Everything is as it was when that backup was made; anything
+            done after it is only in <code>register-before-restore.db</code>.</li>
+        </ol>
+      </details>
+    </section>
+
+    <section class="card admin" id="pw-card" aria-label="Your password" data-admin hidden>
+      <h2>Your password</h2>
+      <p class="muted">The one everyone signs in with. Changing it signs out every admin
+        immediately, including anybody who has left. That is the point of it. Invite links
+        are not affected and keep working.</p>
+      <div class="invite-row">
+        <label class="field"><span>Current password</span>
+          <input class="txt" id="pw-current" type="password" autocomplete="current-password">
+        </label>
+        <label class="field"><span>New password</span>
+          <input class="txt" id="pw-next" type="password" autocomplete="new-password" minlength="8">
+        </label>
+        <button type="button" class="btn" id="pw-save">Change it</button>
+      </div>
+      <p class="saveline" id="pw-line" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="card" id="lists-card" aria-label="The words people pick from" hidden>
+      <h2>The words people pick from</h2>
+      <p class="muted">Status, asset type and model are picked from these lists rather than typed, which
+        is what stops one thing being counted as two. Adding a word is deliberate and is recorded. A
+        status that is not hardware to hand out stops an assignment unless a ticket number is given. An
+        admin can delete a word that no asset uses.</p>
+      <div class="cols" id="lists"></div>
+    </section>
+
+    <section class="card admin" id="resign-settings-card" aria-label="When someone resigns" data-admin hidden>
+      <h2>When someone resigns</h2>
+      <p class="muted">The status each choice in the resign pop-up writes. Until you pick one, the
+        register uses the closest word already on the status list, and adds the plain word the first
+        time nothing fits.</p>
+      <div class="invite-row" id="resign-map"></div>
+      <div class="controls">
+        <button type="button" class="btn" id="resign-map-save">Save these</button>
+      </div>
+      <p class="saveline" id="resign-map-line" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="card admin" id="added-card" aria-label="Delete a person" data-admin hidden>
+      <h2>Delete a person</h2>
+      <p class="muted">Anybody who holds nothing can be deleted outright, with a ticket number. The
+        change log keeps every line about them, under their name; nothing in it can be deleted.</p>
+      <label class="field"><span>Find them</span>
+        <input class="txt" id="added-q" type="search" placeholder="Name…" autocomplete="off">
       </label>
-      <label class="field"><span>What they may do</span>
-        <select class="txt" id="invite-role">
-          <option value="editor">Make corrections</option>
-          <option value="viewer">Look only</option>
-        </select>
-      </label>
-      <button type="button" class="btn" id="invite-make">Create link</button>
-    </div>
-    <div class="links" id="links"></div>
+      <p class="count" id="added-line">&nbsp;</p>
+      <div id="added"></div>
+    </section>
 
-    <h2>Records added here</h2>
-    <p class="muted">People typed into this register rather than read from a workbook. One typed by
-      mistake can be removed outright, as long as it holds nothing. A record that came from the
-      workbook cannot: deleting it would last until the next import and no longer, so fold it into
-      the one you are keeping instead.</p>
-    <div id="added"></div>
+    <section class="card admin" id="folded-card" aria-label="Records folded into another" data-admin hidden>
+      <h2>Records folded into another</h2>
+      <p class="muted">One person entered twice, folded into the record you kept. Putting one back
+        gives it its own row again; the hardware stays where it was moved to.</p>
+      <div id="folded"></div>
+    </section>
 
-    <h2>Records folded into another</h2>
-    <p class="muted">One person entered twice, folded into the record you kept. Putting one back
-      gives it its own row again; the hardware stays where it was moved to.</p>
-    <div id="folded"></div>
-  </section>
-
-  <section class="card" aria-label="How this works">
-    <h2>How this works</h2>
-    <dl class="defs">
-      <div><dt>The only device source</dt><dd>The Asset Central Inventory tab of the workbook. A person is here only if it names them on a laptop, iMac or iPad marked Active/Assigned.</dd></div>
-      <div><dt>Sales and HO</dt><dd>Sales is a job title containing "Financial Advisor". HO is any other job title found. Both are first guessed by matching the name against the monitoring sheet.</dd></div>
-      <div><dt>No type</dt><dd>No job title was found for that name. Set one here and it sticks through every later import.</dd></div>
-      <div><dt>Resigned</dt><dd>A tag this register keeps. The workbook does not record it.</dd></div>
-      <div><dt>Re-importing</dt><dd>Running the import again refreshes names, devices and departments from the workbook and leaves every correction made here alone.</dd></div>
-      <div><dt>Not used</dt><dd>The Asset Central Inventory (2) tab, whose assignee names were sorted apart from the serials. Assets at any status other than Active/Assigned are left out too.</dd></div>
-    </dl>
-  </section>
+    <section class="card" aria-label="How this works">
+      <h2>How this works</h2>
+      <dl class="defs">
+        <div><dt>The only device source</dt><dd>The Asset Central Inventory tab of the workbook. A person is here only if it names them on a laptop, iMac or iPad marked Active/Assigned.</dd></div>
+        <div><dt>Sales and HO</dt><dd>Sales is a job title containing “Financial Advisor”. HO is any other job title found. Both are first guessed by matching the name against the monitoring sheet.</dd></div>
+        <div><dt>No type</dt><dd>No job title was found for that name. Set one here and it sticks through every later import.</dd></div>
+        <div><dt>Resigned</dt><dd>A tag this register keeps. The workbook does not record it.</dd></div>
+        <div><dt>Re-importing</dt><dd>Running the import again refreshes names, devices and departments from the workbook and leaves every correction made here alone.</dd></div>
+        <div><dt>Not used</dt><dd>The Asset Central Inventory (2) tab, whose assignee names were sorted apart from the serials. Assets at any status other than Active/Assigned are left out too.</dd></div>
+      </dl>
+    </section>
+  </div>
 </div>
 
 
@@ -334,12 +559,10 @@
       <input class="txt" id="assign-who" list="holder-list" placeholder="Start typing a name…" autocomplete="off">
       <datalist id="holder-list"></datalist>
     </label>
-    <div id="assign-reasons" hidden>
-      <p class="warnline" id="assign-why"></p>
-      <label class="field block"><span>Ticket number, so this can be looked up later</span>
-        <input class="txt" id="assign-ticket" maxlength="60" placeholder="INC-1234">
-      </label>
-    </div>
+    <p class="warnline" id="assign-reasons" hidden><span id="assign-why"></span></p>
+    <label class="field block"><span>Ticket number</span>
+      <input class="txt" id="assign-ticket" maxlength="60" placeholder="INC-1234" required>
+    </label>
     <p class="count" id="assign-line">&nbsp;</p>
     <div class="controls">
       <button type="button" class="btn" id="assign-go">Assign it</button>
@@ -355,9 +578,12 @@
     <label class="field block"><span>Why</span>
       <input class="txt" id="remove-why" maxlength="200" placeholder="Written off after the flood, say">
     </label>
+    <label class="field block"><span>Ticket number</span>
+      <input class="txt" id="remove-ticket" maxlength="60" placeholder="INC-1234" required>
+    </label>
     <label class="tick" id="remove-hard-row" hidden>
       <input type="checkbox" id="remove-hard">
-      Delete it for good instead — it was typed in here by mistake
+      Delete it for good instead of taking it off
     </label>
     <p class="count" id="remove-line">&nbsp;</p>
     <div class="controls">
@@ -380,6 +606,8 @@
     </label>
     <label class="field block"><span>Position</span><input class="txt" id="p-pos" maxlength="200"></label>
     <label class="field block"><span>Department</span><input class="txt" id="p-dept" maxlength="200"></label>
+    <label class="field block"><span>Ticket number</span><input class="txt" id="p-ticket" maxlength="60" placeholder="INC-1234" required></label>
+    <p class="warnline dupe-note" id="person-dupe" role="alert" hidden></p>
     <p class="count" id="person-line">&nbsp;</p>
     <div class="controls">
       <button type="button" class="btn" id="person-go">Add them</button>
@@ -388,7 +616,63 @@
   </form>
 </dialog>
 
-<script src="/app.js"></script>
-<script src="/assets.js"></script>
+<dialog id="resign-dlg" aria-labelledby="resign-title">
+  <form method="dialog" id="resign-form">
+    <h3 id="resign-title">Leaving</h3>
+    <p class="muted" id="resign-when"></p>
+    <div class="controls">
+      <label class="field"><span>Set all to</span>
+        <select class="txt" id="resign-all">
+          <option value="">Choose one by one</option>
+          <option value="retrieve">To retrieve</option>
+          <option value="available">Available</option>
+          <option value="decommissioned">Decommissioned</option>
+          <option value="defective">Defective</option>
+        </select>
+      </label>
+    </div>
+    <div class="scroll">
+      <table class="resign-table">
+        <thead><tr><th>Asset</th><th>Serial</th><th>Status now</th><th>What happens to it</th></tr></thead>
+        <tbody id="resign-rows"></tbody>
+      </table>
+    </div>
+    <div class="invite-row">
+      <label class="field"><span>Ticket number</span>
+        <input class="txt" id="resign-ticket" maxlength="60" placeholder="INC-1234">
+      </label>
+      <label class="field grow"><span>Note <small>(optional, goes in the change log)</small></span>
+        <input class="txt" id="resign-note" maxlength="500">
+      </label>
+    </div>
+    <p class="count" id="resign-line" role="status" aria-live="polite">&nbsp;</p>
+    <div class="controls">
+      <button type="button" class="btn" id="resign-go" disabled>Mark resigned and save</button>
+      <button type="button" class="btn btn-quiet" id="resign-later">Mark resigned, decide later</button>
+      <button type="button" class="btn btn-quiet" id="resign-cancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="ticket-dlg" aria-labelledby="ticket-title">
+  <form method="dialog" id="ticket-form">
+    <h3 id="ticket-title">Ticket number</h3>
+    <p class="muted" id="ticket-text"></p>
+    <label class="field block"><span>Ticket number</span>
+      <input class="txt" id="ticket-in" maxlength="60" placeholder="INC-1234" autocomplete="off">
+    </label>
+    <p class="count" id="ticket-line" role="status" aria-live="polite">&nbsp;</p>
+    <div class="controls">
+      <button type="submit" class="btn" id="ticket-go">Save</button>
+      <button type="button" class="btn btn-quiet" id="ticket-cancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/app.js?v=5.2.0"></script>
+<script src="/assets.js?v=5.2.0"></script>
+<script src="/tabs.js?v=5.2.0"></script>
+<script src="/resign.js?v=5.2.0"></script>
+<script type="module" src="/dashboard.mjs?v=5.2.0"></script>
 </body>
 </html>

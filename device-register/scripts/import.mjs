@@ -27,7 +27,7 @@ if (fs.existsSync(envFile)) {
   }
 }
 
-const { db, setNote } = await import('../src/db.mjs');
+const { db, setNote, recordChange } = await import('../src/db.mjs');
 const { stageRows, reconcilePlan } = await import('../src/reconcile.mjs');
 const { seedLists } = await import('../src/assets.mjs');
 
@@ -156,16 +156,36 @@ const write = db.transaction(() => {
   }
 
   /* Anyone no longer in the workbook leaves the register, unless they were
-     added here. The audit log keeps the history either way. */
+     added here — and unless somebody has corrected them here. An id is a hash
+     of the name, so a name respelled in the workbook reads as a row that has
+     gone, and deleting it outright took every correction filed against it
+     with no record of what was lost. The register is the only copy, so a row
+     carrying corrections is kept and named instead. */
+  const at = new Date().toISOString();
+  const spared = [];
   let goneHolders = 0;
-  for (const row of db.prepare('SELECT id FROM holders WHERE created_here = 0').all()) {
-    if (!ids.has(row.id)) { db.prepare('DELETE FROM holders WHERE id = ?').run(row.id); goneHolders += 1; }
+  for (const row of db.prepare(
+    'SELECT id, name, overrides FROM holders WHERE created_here = 0',
+  ).all()) {
+    if (ids.has(row.id)) continue;
+    if (row.overrides) { spared.push(`${row.name} (${row.id})`); continue; }
+    recordChange({ at, actor: 'the workbook', holderId: row.id, field: 'holder',
+      was: row.name, now: 'no longer listed in the workbook' });
+    db.prepare('DELETE FROM holders WHERE id = ?').run(row.id);
+    goneHolders += 1;
   }
   let goneDevices = 0;
-  for (const row of db.prepare('SELECT serial FROM devices WHERE created_here = 0').all()) {
-    if (!serials.has(row.serial)) { db.prepare('DELETE FROM devices WHERE serial = ?').run(row.serial); goneDevices += 1; }
+  for (const row of db.prepare(
+    'SELECT serial, overrides FROM devices WHERE created_here = 0',
+  ).all()) {
+    if (serials.has(row.serial)) continue;
+    if (row.overrides) { spared.push(row.serial); continue; }
+    recordChange({ at, actor: 'the workbook', serial: row.serial, field: 'asset',
+      was: row.serial, now: 'no longer listed in the workbook' });
+    db.prepare('DELETE FROM devices WHERE serial = ?').run(row.serial);
+    goneDevices += 1;
   }
-  return { goneHolders, goneDevices };
+  return { goneHolders, goneDevices, spared };
 });
 
 /* Holder ids used to be the row's position in an alphabetical list, so
@@ -206,16 +226,20 @@ const relabel = db.transaction(() => {
   return moves;
 });
 
-const moved = relabel();
+const held = devices.filter((d) => d.held === 'yes').length;
+const empty = db.prepare('SELECT COUNT(*) AS n FROM holders').get().n === 0;
+const takeTheLot = process.argv.includes('--apply-all');
+
+/* Only on the paths that write. Running this unconditionally meant a staging
+   run — the one that goes on to print "Nothing has been written" — had
+   already rewritten holder ids, the records folded into them, every device's
+   holder and the whole audit trail, before anybody had looked at the plan. */
+const moved = (empty || takeTheLot) ? relabel() : [];
 if (moved.length) {
   console.log(`${moved.length} holder ids were the row's position in a list and are now derived from `
     + 'the name, so they stop moving when the workbook changes. Every correction, fold and '
     + 'assignment filed against them moved with them.');
 }
-
-const held = devices.filter((d) => d.held === 'yes').length;
-const empty = db.prepare('SELECT COUNT(*) AS n FROM holders').get().n === 0;
-const takeTheLot = process.argv.includes('--apply-all');
 
 setNote('duplicate_serials', duplicates);
 if (duplicates.length) {
@@ -226,20 +250,34 @@ if (duplicates.length) {
 }
 
 if (empty || takeTheLot) {
-  const { goneHolders, goneDevices } = write();
+  const { goneHolders, goneDevices, spared } = write();
   seedLists();
   console.log(`${people.length} holders and ${devices.length} assets imported (${held} held by someone).`);
   if (goneHolders || goneDevices) {
     console.log(`Removed ${goneHolders} holders and ${goneDevices} devices no longer in the workbook.`);
+  }
+  if (spared.length) {
+    console.log(`${spared.length} row${spared.length === 1 ? '' : 's'} the workbook no longer lists `
+      + 'had corrections made here, so they were kept rather than deleted:');
+    for (const name of spared.slice(0, 20)) console.log(`  ${name}`);
+    if (spared.length > 20) console.log(`  ...and ${spared.length - 20} more`);
+    console.log('  Check whether the name was respelled in the workbook: that gives the row a new '
+      + 'id, so the old one reads as gone.');
   }
   const kept = db.prepare("SELECT COUNT(*) AS n FROM holders WHERE overrides IS NOT NULL").get().n;
   console.log(`${kept} corrections kept.`);
   const left = db.prepare('SELECT COUNT(*) AS n FROM holders WHERE base_resigned = 1').get().n;
   if (left) console.log(`${left} holders are on HR's resigned list.`);
 } else {
-  stageRows('holder', holderRows);
-  stageRows('device', deviceRows);
-  setNote('staged_at', new Date().toISOString());
+  /* One transaction. Staging the holders and then failing on the devices left
+     a full holder list beside an empty device list, and the plan read every
+     asset in the register as gone from the workbook — one tick of the
+     select-all away from deleting the lot. */
+  db.transaction(() => {
+    stageRows('holder', holderRows);
+    stageRows('device', deviceRows);
+    setNote('staged_at', new Date().toISOString());
+  })();
   seedLists();
   const plan = reconcilePlan();
   const { change, clash, added, gone } = plan.totals;

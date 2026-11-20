@@ -309,6 +309,24 @@ def build(workbook_path, out_dir, employee_list=None):
     for device in devices:
         by_holder.setdefault((norm(device["last"]), norm(device["given"])), []).append(device)
 
+    # norm() drops punctuation and case, so "Jo-Ann Cruz" and "Joann Cruz"
+    # land on one key -- and so do two genuinely different people who happen
+    # to share a name. Either way the loop below makes them a single holder
+    # carrying both people's hardware, one person's HR record, position,
+    # email and network ID, and the duplicate finder cannot propose the pair
+    # because there is only one record left to propose. The asset-type and
+    # status drops are reported out loud; so is this.
+    fused = []
+    for key, kit in by_holder.items():
+        spellings = sorted({" ".join(f"{d['given']} {d['last']}".split()) for d in kit})
+        if len(spellings) > 1:
+            fused.append((spellings, len(kit)))
+    if fused:
+        print(f"{len(fused)} holder name(s) cover more than one spelling and were counted as one "
+              "person each. Check that these are not two different people:")
+        for spellings, n in fused:
+            print(f"  {' / '.join(spellings)}  ({n} asset(s))")
+
     people = []
     for key, kit in sorted(by_holder.items()):
         last, given = kit[0]["last"], kit[0]["given"]
@@ -372,6 +390,29 @@ def build(workbook_path, out_dir, employee_list=None):
 
     out = pathlib.Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+
+    # Nothing read as held by anyone. status_key exists to survive a change of
+    # wording in the workbook, and this is what it looks like when the wording
+    # changes anyway -- so say that, rather than an IndexError on people[0].
+    if not people:
+        seen = sorted({str(d.get("status") or "") for d in devices if d.get("status")})
+        raise SystemExit(
+            "No assets read as held by anyone, so there are no holders to write. "
+            "The workbook's status wording may have changed. Statuses seen: "
+            + (", ".join(seen[:20]) if seen else "(none)")
+        )
+
+    # The id is eight hex characters of a hash of the name, so two different
+    # names can land on the same one. upsertHolder's ON CONFLICT(id) DO UPDATE
+    # would then write one person silently over the other, so stop here first.
+    ids = [p["id"] for p in people]
+    if len(set(ids)) != len(ids):
+        clashing = sorted({i for i in ids if ids.count(i) > 1})
+        raise SystemExit(
+            "Two holders were given the same id, which would overwrite one with the other: "
+            + ", ".join(clashing)
+            + ". Widen the hash slice in holder_id and re-run."
+        )
 
     people_cols = list(people[0].keys())
     with (out / "people.csv").open("w", newline="", encoding="utf-8") as handle:

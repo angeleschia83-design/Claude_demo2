@@ -7,31 +7,149 @@ something is added, the **patch** when something is only put right.
 The running version is shown beside your name in the top right of the page,
 and `/api/session` reports it.
 
-## 4.6.0 — 11 November 2026
+## 5.2.0 — 20 November 2026
 
-**It stays up when you log off now.** The launchers run the register inside
-your login session, and Windows ends a session's processes when that session
-ends — so the register stopped the moment whoever started it disconnected
-from the server. The machine was up the whole time; the process was not.
+**An asset can carry its invoice date and its purchase date.** Both are
+optional boxes on *Add an asset*, and both are columns on the Assets table
+that an admin can fill in or correct later by clicking the cell, the same way
+as a host name or a remark. They are in the audit export too.
 
-`service/` holds the fix for both platforms.
+Neither date comes from the workbook, so an import never overwrites one: what
+somebody types here stays typed. A date is kept as YYYY-MM-DD, and the boxes
+are calendars rather than free text, so nothing can be stored that reads as
+3 April in one place and 4 March in another.
 
-**Windows:** `install-windows.ps1` registers a scheduled task that starts at
-boot, runs as `SYSTEM` with nobody logged in, restarts a minute after any
-stop, and has no execution time limit. It writes to `logs\server.log`, rolled
-at 5 MB. The full path to `node.exe` is resolved at install time and written
-into the task, because the SYSTEM account's PATH is rarely yours and "node is
-not recognised" at boot with no window to show it is a miserable thing to
-chase. It checks `/healthz` before it finishes and says so if the register
-did not answer. `-UserId` and `-Password` run it under a service account
-where policy wants that instead.
+Two nullable columns are added to `devices` the first time 5.2.0 starts. An
+older build reads the database afterwards without complaint; it simply does
+not show the two dates.
 
-**Linux:** a systemd unit, verified with `systemd-analyze verify`. Restarts on
-failure and confines the process — no new privileges, read-only system apart
-from its own folder, no access to home directories.
+**Fixed: pressing Enter in an Assets cell undid the edit it had just made.**
+The cell saved the new value, then opened a second box — still holding the
+old one — which wrote it back the moment focus moved, all under a "saved"
+message. Every correction typed into the Assets table and committed with
+Enter was lost this way; clicking away instead of pressing Enter was not
+affected, and the People table was never affected. Both values are in the
+change log, so anything lost to this can be found there.
 
-`uninstall-windows.ps1` removes the task and leaves the database and logs
-where they are.
+## 5.1.0 — 13 November 2026
+
+**A ticket number on every change an audit follows.** Handing out, taking
+back, *It's back*, resigning somebody (decide later included), changing an
+asset's status or serial, adding or taking off an asset, putting one back,
+adding or deleting a person, unticking Resigned and deleting a pick-list word
+now all need one, and it goes on every line the change writes. The register
+asks for it in a small box, offering the last number typed, and refuses
+without it. Correcting a name, a position or a remark does not need one.
+
+**Ticking Resigned always opens the pop-up**, for somebody who holds nothing
+too: it is where the ticket is asked for. Before, a person with nothing on
+their name was ticked without a word.
+
+**You can see what is waiting without going looking.** After a resign a notice
+says what was tagged To retrieve, with **Show them**, which opens Needs
+attention with those rows lit up. A leaver's row on People says *2 to
+retrieve*, *1 not decided* or *all back*, and an asset waiting to come back
+says *To retrieve since* the day it was asked for. Assets has a *Waiting to
+come back* filter.
+
+**A leaver's record is locked.** Their row is greyed, and only an admin can
+change it or untick them. An editor can still decide their hardware and take
+it back.
+
+**Admin can delete.** Anybody who holds nothing, from Settings, *Delete a
+person*; any asset nobody holds, from *Take it off*; and any word on a pick
+list that no asset uses. Nothing in the change log can be deleted: a deleted
+person keeps their name on every line about them.
+
+**Light or dark, your choice.** A button in the top bar switches between
+them, and the browser remembers it. Until it is pressed, the register follows
+the computer's own setting, as before.
+
+**Back up from the page.** Settings has *Backups*: **Back up now** copies every
+record (people, assets, corrections, resigns and the change log) into a
+backups folder beside the database, while the register keeps running. Each
+one can be downloaded, to keep somewhere other than the server, and the card
+says how to put one back. It also backs itself up every week: when the
+register is opened and the newest backup is a week old, it makes one. The bar at the top shows when the last backup was
+made, for admins and editor links, and turns red once it is a week old or
+there is none. Backups made by the workbook import count too.
+
+**Adding something that is already there says so.** Adding a person or an
+asset already in the register is refused with a note saying who or where it
+is: their department and what they hold, who has the asset, or that it was
+taken off the register and can be put back. A near miss (a name with a letter
+out, surname first or a middle name more, or a serial with different dashes
+or spaces) lists the likely match first; *Add anyway* adds it when they really
+are two.
+
+**Export for audit**, on the Assets tab: an Excel list of exactly the assets
+the tab is showing, with empty **Found** and **Notes** columns to fill in while
+walking round, and a second sheet saying what it was narrowed to.
+
+**The change log filters by date**, From and To, and *Export the log* exports
+what the filter shows.
+
+**Laptops and iPads owned**, a new dashboard card: every one on the register,
+not only those handed out, split into with people, ready to hand out and
+elsewhere, with what elsewhere means.
+
+**Faster, and up to date without refreshing.** The server compresses its
+answers, a tenth of the size over the network. The page reads the
+to-retrieve list once instead of three times, and asks for the data-quality
+list only while Needs attention is open. *What has changed lately* updates
+after every change, and every half minute the page asks whether anybody else
+changed something, reloading only when they have, so one person's change
+reaches everyone's screen without anybody pressing refresh.
+
+**Put right from a security review.** Handing out hardware, folding two
+records and adding a person used to answer an editor link with the person's
+email and network ID; they no longer do. The change log hides the old and new
+value of an email or network ID change from editor links. Applying changes
+pasted from the offline copy now asks for a ticket like every other audited
+change, and an editor link's paste can no longer change a resigned person.
+
+## 5.0.0 — 12 November 2026
+
+**One tab per job.** The page had grown into one long scroll of fifteen
+sections, and reaching the invite links meant scrolling past everything else.
+It is eight tabs now: Dashboard, People, Assets, Needs attention, Import,
+Access links, Change log and Settings. A tab shows only when the person signed
+in can use something on it, the address names it so it can be bookmarked, and
+the page reopens on the last one used.
+
+**A leaver's hardware is decided when they leave.** Ticking somebody resigned
+who holds anything opens a pop-up with every piece on their name. Each gets
+one of four answers: to retrieve, which keeps it on their name until it is
+back, or available, decommissioned or defective, which take it off. It all
+saves together or not at all, a ticket number goes on every line it writes,
+and if somebody else changed their hardware while it was open, it says so
+instead of saving half of it. Decide later marks them and leaves the hardware
+for later.
+
+**Needs attention** lists every leaver still holding hardware nobody has
+decided about, HR's leavers included, and everything waiting to come back with
+the day it was asked for. Settings has *When someone resigns*, where an admin
+picks the status word each answer writes; until then the closest word on the
+list is used, and the plain word is added the first time nothing fits.
+
+**The dashboard is each person's own.** Every card can be hidden or moved,
+filters narrow every card that can take them, and a period narrows what has
+changed lately. This browser remembers it. Five cards are new: assets by
+status, by department, to retrieve, defective, and resigned but not decided.
+
+**A new look.** Warm paper, one calm green for every signal, a leaver's
+hardware in grey rather than red, serials set like a label, the totals as one
+ruled line. It follows the computer into dark mode. Every control now shows
+where the keyboard is, and nothing scrolls sideways on a phone.
+
+**After an upgrade, the page is the new one.** A browser kept the page for an
+hour and could show the old one, with a mix of old and new scripts, after an
+upgrade. It now checks for a newer page every time, and the scripts carry the
+version in their address.
+
+Nothing the register already did has changed: the database, imports, exports,
+links, hand-out rules, duplicates and the change log all work as before, and
+the database needs no step to upgrade.
 
 ## 4.5.0 — 10 November 2026
 

@@ -5,6 +5,10 @@ node_modules/
 *.db-shm
 .env
 
+# Written when a request fails. Carries paths and error messages, and is a
+# record of this machine rather than of the project.
+error.log
+
 # Staff data never goes into git: these hold names, job titles, email
 # addresses and device serial numbers. Rebuild them from the workbook with
 # scripts/build-data.py on the machine that runs the app.

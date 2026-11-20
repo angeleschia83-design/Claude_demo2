@@ -1,0 +1,92 @@
+DEVICE REGISTER — for whoever sets this up
+==========================================
+
+WHAT IT IS
+
+A small web application showing who in the company holds which laptop or iPad,
+and letting people correct the record. Built from two of your own
+spreadsheets: the IT Hardware Asset Management workbook and the HR employee
+list.
+
+The point of it is that people OUTSIDE the company can use it. You send
+someone a link, they click it, they make corrections. No account, no password,
+no sign-up.
+
+It has already been proved to work. It was run on a laptop and used from a
+phone on the same wifi. What stopped it going further is exactly what a server
+fixes: a laptop's address keeps changing, it sleeps, and office wifi blocks
+machines from reaching each other.
+
+
+WHAT YOU NEED FROM THE PERSON WHO SENT YOU THIS
+
+  1. The IT Hardware Asset Management workbook.
+  2. The HR employee list (Employee_List-_09222026.xlsx or newer).
+  3. A password they choose, for their own admin sign-in.
+
+Those two spreadsheets hold staff names, job titles, email addresses and
+device serial numbers. Move them the way your organisation moves files of that
+kind.
+
+
+WHAT IT NEEDS
+
+  - Node.js 22.5 or newer. Nothing is compiled: storage is Node's own
+    built-in SQLite, so npm install pulls plain JavaScript and no C++
+    toolchain is needed. There is no build step and no framework.
+  - Python 3 with openpyxl, for the one-off step that reads the spreadsheets.
+  - A reverse proxy for HTTPS. It binds to localhost on purpose.
+
+Or ignore all that and use the included Dockerfile and compose.yaml: three
+commands, in the README.
+
+
+SETUP
+
+Full instructions are in device-register/README.md. The short version:
+
+  cp .env.example .env            # then set ADMIN_PASSWORD and SESSION_SECRET
+  npm install
+  python3 scripts/build-data.py <asset-workbook.xlsx> data <employee-list.xlsx>
+  npm run import
+  npm start
+
+The app refuses to start while either secret still holds its placeholder.
+
+
+PLEASE READ THESE TWO PARTS OF THE README
+
+  "Data and privacy" — the database holds staff personal data and is the only
+  copy of every correction made in the app. It needs backing up.
+
+  "Deploying" — it binds to 127.0.0.1 deliberately and expects a reverse proxy
+  to terminate TLS. Set SECURE_COOKIES=1 when you do.
+
+
+THREE THINGS WORTH KNOWING BEFORE YOU READ THE CODE
+
+  - Invite links are bearer tokens. Anyone the URL is forwarded to gets the
+    same access, so viewer links can be handed out freely and editor links
+    should not be. Each can be withdrawn individually; changing SESSION_SECRET
+    ends every session at once.
+
+  - Re-running the import refreshes what the spreadsheets own and leaves every
+    correction made in the app alone. That is deliberate. Holder ids are
+    a hash of the holder's name, so the same person keeps the same id however
+    the workbook changes around them. They used to be the row's position in
+    an alphabetical list, which meant adding one person slid almost every id
+    onto somebody else; an import brings an older register forward and says
+    so when it does.
+
+  - Invite links are built from the server's own network address rather than
+    whatever is in the admin's address bar. Behind a reverse proxy you will
+    want them to carry the public hostname instead: that is in
+    src/server.mjs, in networkAddresses().
+
+
+WHAT THE PERSON WHO SENT YOU THIS GETS BACK
+
+A web address. They sign in, and from there they create a named link per
+person who needs to help, inside or outside the company. Everything else -
+Sales/HO labels, resigned tags, Excel and CSV export, an audit log of who
+changed what - is already built.

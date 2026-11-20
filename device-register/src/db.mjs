@@ -7,10 +7,16 @@ import { findDuplicates } from './duplicates.mjs';
    that runs this. A compiled driver has to match the exact Node version it
    is built for, which turned a two-minute setup into an afternoon. */
 const file = process.env.DATABASE_PATH || './register.db';
+/** The database's full path; backups go beside it. */
+export const dbFile = path.resolve(file);
 
-const handle = new DatabaseSync(path.resolve(file));
+const handle = new DatabaseSync(dbFile);
 handle.exec('PRAGMA journal_mode = WAL');
 handle.exec('PRAGMA foreign_keys = ON');
+/* WAL serialises writers rather than removing the lock, and `npm run import`
+   is a second process against this same file. Without a busy timeout the
+   server's next write fails the instant the importer holds the lock. */
+handle.exec('PRAGMA busy_timeout = 5000');
 
 /* node:sqlite has no transaction helper, so wrap one. Nested calls join the
    outer transaction rather than trying to start a second. */
@@ -18,7 +24,16 @@ let depth = 0;
 const transaction = (fn) => (...args) => {
   if (depth > 0) return fn(...args);
   depth += 1;
-  handle.exec('BEGIN');
+  try {
+    handle.exec('BEGIN');
+  } catch (err) {
+    /* BEGIN failing must not leave `depth` above zero. It used to sit outside
+       the try below, so a single SQLITE_BUSY stranded the counter and every
+       later call took the nested branch — running with no transaction at all,
+       for the life of the process, silently. */
+    depth -= 1;
+    throw err;
+  }
   try {
     const out = fn(...args);
     handle.exec('COMMIT');
@@ -73,7 +88,10 @@ db.exec(`
     holder_id   TEXT,
     holder      TEXT,
     assigned_on TEXT, age_years TEXT, os TEXT, host_name TEXT,
-    specs       TEXT, remarks TEXT
+    specs       TEXT, remarks TEXT,
+    /* Optional, and never carried by the workbook: a person types these
+       in when the asset is added, so no import overwrites them. */
+    invoice_date TEXT, purchased_on TEXT
   );
   CREATE INDEX IF NOT EXISTS devices_holder ON devices(holder_id);
 
@@ -126,15 +144,25 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS audit_at ON audit(at DESC);
 `);
 
-/* Databases made before HR's resigned list existed are brought forward. */
+/* Databases made before the asset side existed are brought forward. */
+let addedHeld = false;
 for (const [column, definition] of [
   ['asset_type', 'TEXT'],
   ['status', 'TEXT'],
   ['held', 'INTEGER NOT NULL DEFAULT 0'],
-].filter(() => true)) {
+]) {
   const present = handle.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?')
     .get('devices', column);
-  if (!present) handle.exec(`ALTER TABLE devices ADD COLUMN ${column} ${definition}`);
+  if (!present) {
+    handle.exec(`ALTER TABLE devices ADD COLUMN ${column} ${definition}`);
+    if (column === 'held') addedHeld = true;
+  }
+}
+/* A column added to a table that already has rows defaults every one of them
+   to 0, so an upgraded register showed an empty fleet chart until somebody
+   ran a full import. Derive it once from the holder the workbook recorded. */
+if (addedHeld) {
+  handle.exec("UPDATE devices SET held = 1 WHERE holder_id IS NOT NULL AND holder_id <> ''");
 }
 
 for (const [column, definition] of [
@@ -148,6 +176,9 @@ for (const [column, definition] of [
 
 for (const [column, definition] of [
   ['overrides', 'TEXT'],
+  /* Both optional, both typed in here rather than read from the workbook. */
+  ['invoice_date', 'TEXT'],
+  ['purchased_on', 'TEXT'],
   ['created_here', 'INTEGER NOT NULL DEFAULT 0'],
   ['created_at', 'TEXT'],
   ['created_by', 'TEXT'],
@@ -198,7 +229,12 @@ export const editableFields = [...EDITABLE.entries()].map(([key, label]) => ({ k
     `SELECT id, type, resigned, note FROM holders
       WHERE overrides IS NULL AND (type IS NOT NULL OR resigned IS NOT NULL OR note IS NOT NULL)`,
   ).all();
-  const write = handle.prepare('UPDATE holders SET overrides = ? WHERE id = ?');
+  /* Clearing the legacy columns is what makes this a one-off. Leaving them set
+     meant the block matched again on the next start, so a correction somebody
+     deliberately reverted (which writes overrides = NULL) came back. */
+  const write = handle.prepare(
+    'UPDATE holders SET overrides = ?, type = NULL, resigned = NULL, note = NULL WHERE id = ?',
+  );
   for (const row of stale) {
     const carried = {};
     if (row.type !== null) carried.type = row.type;
@@ -225,10 +261,18 @@ const allHolders = db.prepare(`${SELECT} WHERE merged_into IS NULL ORDER BY name
 const oneHolder = db.prepare(`${SELECT} WHERE id = ?`);
 /* The fleet chart is about hardware in people's hands, so it counts only the
    held rows. The asset summary below counts everything. */
+/* An assignment made here is an override, so the `held` column on its own
+   answers with whatever the last import said and ignores every hand-out and
+   return since. Where the app has set a holder, that wins; otherwise fall
+   back to the column. */
+const HELD_NOW = `CASE WHEN json_extract(overrides, '$.holder_id') IS NOT NULL
+                         THEN json_extract(overrides, '$.holder_id') <> ''
+                       ELSE held = 1 END`;
+
 const fleetRows = db.prepare(
   `SELECT CASE WHEN model = '' THEN 'Model not recorded' ELSE model END AS model,
           kind, COUNT(*) AS n
-     FROM devices WHERE held = 1 AND removed_at IS NULL
+     FROM devices WHERE ${HELD_NOW} AND removed_at IS NULL
     GROUP BY model, kind ORDER BY n DESC`,
 );
 
@@ -275,8 +319,15 @@ export const getHolder = (id) => {
   return row ? toRow(row) : null;
 };
 export const listFleet = () => fleetRows.all();
+/* Resolved through the override for the same reason as the fleet count: the
+   raw column answers with the workbook's assignment, not the register's. */
 export const listDevices = (id) =>
-  db.prepare('SELECT * FROM devices WHERE holder_id = ? ORDER BY kind, serial').all(id);
+  db.prepare(
+    `SELECT * FROM devices
+      WHERE COALESCE(json_extract(overrides, '$.holder_id'), holder_id, '') = ?
+        AND removed_at IS NULL
+      ORDER BY kind, serial`,
+  ).all(id);
 
 const auditRow = db.prepare(
   `INSERT INTO audit (at, actor, holder_id, serial, field, old_value, new_value, ticket)
@@ -335,15 +386,21 @@ export const updateHolder = db.transaction((id, patch, actor, ticket = null) => 
    has seen before appears on its own. This is what the spreadsheet could not
    do: its COUNTIFS named every model in the formula, and quietly dropped
    anything that was not on the list. */
+/* Every one of these columns is correctable here, and a correction is an
+   override. Reading the raw column left a corrected status, model or age out
+   of the counts, the dashboard pivots and the exported sheets. */
+const effective = (column) => `COALESCE(json_extract(overrides, '$.${column}'), ${column})`;
 const blank = (column, label) =>
-  `CASE WHEN ${column} IS NULL OR ${column} = '' THEN '${label}' ELSE ${column} END`;
+  `CASE WHEN ${effective(column)} IS NULL OR ${effective(column)} = '' THEN '${label}'
+        ELSE ${effective(column)} END`;
 
 const summaryRows = db.prepare(`
   SELECT ${blank('asset_type', 'No asset type')} AS type,
          ${blank('status', 'No status recorded')} AS status,
          ${blank('model', 'No model recorded')} AS model,
-         CASE WHEN age_years IS NULL OR age_years = '' THEN 'No age recorded'
-              WHEN CAST(age_years AS REAL) <= 2 THEN '2 years or less'
+         CASE WHEN ${effective('age_years')} IS NULL OR ${effective('age_years')} = ''
+                THEN 'No age recorded'
+              WHEN CAST(${effective('age_years')} AS REAL) <= 2 THEN '2 years or less'
               ELSE 'Over 2 years' END AS age,
          COUNT(*) AS n
     FROM devices
@@ -372,13 +429,35 @@ export const listSummary = () => ({
   duplicates: getNote('duplicate_serials') || [],
 });
 
-export const listAudit = (limit = 200) =>
-  db.prepare(
-    `SELECT a.*, h.name FROM audit a LEFT JOIN holders h ON h.id = a.holder_id
-      ORDER BY a.id DESC LIMIT ?`,
-  ).all(limit).map((row) => ({ ...row }));
+/* The change log is never deleted from. A person deleted from the register
+   keeps their name on every line about them: it is read back from the line
+   that recorded the deletion. `from` and `to` are ISO times, either end
+   optional. */
+const auditWhere = ({ from, to } = {}) => {
+  const terms = [];
+  const args = [];
+  if (from) { terms.push('a.at >= ?'); args.push(from); }
+  if (to) { terms.push('a.at < ?'); args.push(to); }
+  return { where: terms.length ? `WHERE ${terms.join(' AND ')}` : '', args };
+};
 
-export const countAudit = () => db.prepare('SELECT COUNT(*) AS n FROM audit').get().n;
+export const listAudit = (limit = 200, range = {}) => {
+  const { where, args } = auditWhere(range);
+  return db.prepare(
+    `SELECT a.*, COALESCE(h.name, (SELECT d.old_value FROM audit d
+              WHERE d.holder_id = a.holder_id AND d.field = 'removed from the register'
+              ORDER BY d.id DESC LIMIT 1)) AS name
+       FROM audit a LEFT JOIN holders h ON h.id = a.holder_id
+      ${where} ORDER BY a.id DESC LIMIT ?`,
+  ).all(...args, limit).map((row) => ({ ...row }));
+};
+
+export const lastAuditId = () => db.prepare('SELECT COALESCE(MAX(id), 0) AS n FROM audit').get().n;
+
+export const countAudit = (range = {}) => {
+  const { where, args } = auditWhere(range);
+  return db.prepare(`SELECT COUNT(*) AS n FROM audit a ${where}`).get(...args).n;
+};
 
 /* Everything in the inventory that cannot be taken at face value, counted
    from the rows rather than from a list somebody has to remember to update. */
@@ -407,13 +486,26 @@ export const listProblems = () => {
        of these: accessories and monitors assigned to a floor or a room
        rather than a person, which is fine until somebody has to find one. */
     assignedToNobody: rows(
-      `SELECT serial, asset_type, model, status FROM devices
-        WHERE removed_at IS NULL AND status LIKE '%ssigned%'
+      /* The status as corrected, not as the workbook had it: a piece taken
+         back and set to Available read as still assigned to nobody. */
+      `SELECT serial, asset_type, model, COALESCE(json_extract(overrides, '$.status'), status) AS status FROM devices
+        WHERE removed_at IS NULL AND COALESCE(json_extract(overrides, '$.status'), status) LIKE '%ssigned%'
           AND COALESCE(json_extract(overrides, '$.holder_id'), holder_id, '') = ''
         ORDER BY asset_type, serial`),
     noAge: db.prepare(
       `SELECT COUNT(*) AS n FROM devices
         WHERE removed_at IS NULL AND (age_years IS NULL OR age_years = '')`).get().n,
+    /* Corrections that can no longer be read back. readOverrides answers {}
+       for these, so they have already vanished from the page, and the next
+       write to that row lays a fresh object over the damage and makes the
+       loss permanent. That belongs in front of somebody rather than being
+       swallowed quietly. */
+    unreadableCorrections: [
+      ...rows(`SELECT id AS ref, name AS label, 'person' AS kind FROM holders
+                WHERE overrides IS NOT NULL AND json_valid(overrides) = 0`),
+      ...rows(`SELECT serial AS ref, serial AS label, 'asset' AS kind FROM devices
+                WHERE overrides IS NOT NULL AND json_valid(overrides) = 0`),
+    ],
     offRegister: rows(
       `SELECT id, name, department, devices_held AS n FROM holders
         WHERE hr_status = 'not on list' ORDER BY name COLLATE NOCASE`),
@@ -423,3 +515,14 @@ export const listProblems = () => {
         ORDER BY name COLLATE NOCASE`),
   };
 };
+
+/* Runs one change and puts its ticket number on every change-log line that
+   change wrote: the asset's, and the holder's own lines worked out again from
+   it, which the routes underneath record without one. All in one transaction,
+   so a change that fails leaves no lines and no ticket behind. */
+export const stampTicket = (ticket, fn) => transaction(() => {
+  const before = db.prepare('SELECT COALESCE(MAX(id), 0) AS n FROM audit').get().n;
+  const out = fn();
+  db.prepare("UPDATE audit SET ticket = ? WHERE id > ? AND (ticket IS NULL OR ticket = '')").run(ticket, before);
+  return out;
+})();

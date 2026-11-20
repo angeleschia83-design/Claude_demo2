@@ -129,6 +129,15 @@ const summarise = (kind, row) => (kind === 'device'
 
 export const reconcilePlan = () => {
   if (!hasStage()) return null;
+  /* Both kinds or neither. A stage holding only holders makes every asset in
+     the register read as gone from the workbook, which is a plan nobody
+     should be offered. */
+  const kinds = new Set(db.prepare('SELECT DISTINCT kind FROM stage').all().map((row) => row.kind));
+  if (!kinds.has('holder') || !kinds.has('device')) {
+    console.warn('The staged workbook holds only ' + [...kinds].join(' and ')
+      + ' rows, so it is incomplete and is being ignored. Re-run the import.');
+    return null;
+  }
 
   const liveHolders = db.prepare('SELECT * FROM holders').all();
   const liveDevices = db.prepare('SELECT * FROM devices').all();
@@ -206,12 +215,16 @@ const insertDevice = (row) => db.prepare(`
   host_name: row.host_name ?? '', specs: row.specs ?? '', remarks: row.remarks ?? '',
 });
 
-export const applyPlan = db.transaction((picked, actor) => {
+export const applyPlan = db.transaction((picked, actor, seen = null) => {
   const plan = reconcilePlan();
   if (!plan) return { error: 'There is no workbook waiting.' };
   const wanted = new Set(picked || []);
+  /* What the page showed for each ticked row. The plan is recomputed here, so
+     without this a row that turned into a clash while the admin was reading
+     would be applied anyway, dropping a correction nobody was ever shown. */
+  const shown = seen && typeof seen === 'object' ? seen : null;
   const at = new Date().toISOString();
-  const out = { fields: 0, added: 0, gone: 0 };
+  const out = { fields: 0, added: 0, gone: 0, skipped: [] };
 
   const stagedHolders = new Map(staged('holder').map((row) => [String(row.id), row]));
   const stagedDevices = new Map(staged('device').map((row) => [String(row.serial ?? row.id), row]));
@@ -224,6 +237,12 @@ export const applyPlan = db.transaction((picked, actor) => {
        however the code around it changes. */
     const owned = change.kind === 'holder' ? HOLDER_FIELDS : DEVICE_FIELDS;
     if (!owned.has(change.field)) continue;
+    /* Changed since it was shown: leave it, and say so. It comes back on the
+       next plan, labelled for what it now is. */
+    if (shown && shown[change.key] && shown[change.key] !== change.state) {
+      out.skipped.push({ key: change.key, was: shown[change.key], now: change.state });
+      continue;
+    }
     if (change.kind === 'holder') {
       db.prepare(`UPDATE holders SET ${change.field} = ? WHERE id = ?`).run(change.now, change.id);
       /* Taking the workbook's value where a correction disagreed means
@@ -267,14 +286,47 @@ export const applyPlan = db.transaction((picked, actor) => {
   }
 
   for (const row of [...plan.holders.gone, ...plan.devices.gone]) {
-    if (!wanted.has(`gone:${row.kind}:${row.id}`)) continue;
-    if (row.kind === 'holder') db.prepare('DELETE FROM holders WHERE id = ?').run(row.id);
-    else db.prepare('DELETE FROM devices WHERE serial = ?').run(row.id);
+    const key = `gone:${row.kind}:${row.id}`;
+    if (!wanted.has(key)) continue;
+    if (shown && shown[key] && shown[key] !== 'gone') {
+      out.skipped.push({ key, was: shown[key], now: 'gone' });
+      continue;
+    }
+    if (row.kind === 'holder') {
+      /* The checks deleteHolder makes, which this path used to go around. A
+         raw delete left hardware pointing at an id nothing holds, and left
+         any record folded into this one invisible for good — the fold is the
+         only thing keeping it out of the holder list. */
+      const holding = db.prepare(
+        `SELECT COUNT(*) AS n FROM devices
+          WHERE removed_at IS NULL
+            AND COALESCE(json_extract(overrides, '$.holder_id'), holder_id, '') = ?`,
+      ).get(row.id).n;
+      const foldedIn = db.prepare('SELECT COUNT(*) AS n FROM holders WHERE merged_into = ?')
+        .get(row.id).n;
+      if (holding || foldedIn) {
+        out.skipped.push({ key, was: 'gone',
+          now: holding ? 'still holds assets' : 'has records folded into it' });
+        continue;
+      }
+      db.prepare('DELETE FROM holders WHERE id = ?').run(row.id);
+    } else {
+      db.prepare('DELETE FROM devices WHERE serial = ?').run(row.id);
+    }
     recordChange({ at, actor, holderId: row.kind === 'holder' ? row.id : '',
       serial: row.kind === 'device' ? row.id : null,
       field: 'no longer in the workbook', was: row.label, now: '(removed)' });
     out.gone += 1;
   }
 
+  /* A workbook that has been gone through is not still waiting. Leaving the
+     stage in place kept the card up with the same rows, so a correction made
+     after the apply came back as a clash and could be applied again, quietly
+     reverting it. */
+  const after = reconcilePlan();
+  if (after && !after.totals.change && !after.totals.clash
+      && !after.totals.added && !after.totals.gone) {
+    clearStage();
+  }
   return out;
 });

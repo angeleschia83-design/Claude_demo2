@@ -1,6 +1,6 @@
 {
   "name": "device-register",
-  "version": "4.6.0",
+  "version": "5.2.0",
   "private": true,
   "type": "module",
   "description": "Shared register of who holds which company laptop or iPad.",
@@ -10,7 +10,10 @@
   "scripts": {
     "import": "node scripts/import.mjs",
     "start": "node src/server.mjs",
-    "dev": "node --watch src/server.mjs"
+    "dev": "node --watch src/server.mjs",
+    "test": "node --test \"test/*.test.mjs\"",
+    "demo": "node scripts/demo.mjs",
+    "check-buttons": "node scripts/check-buttons.mjs"
   },
   "dependencies": {
     "express": "^4.22.3"

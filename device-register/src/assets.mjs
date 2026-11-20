@@ -14,7 +14,8 @@
  * that says the thing is in for repair — each stops the assignment and asks
  * for a ticket number, which is then recorded against the change.
  */
-import { db, readOverrides, recordChange, getHolder, updateHolder, listHolders } from './db.mjs';
+import { db, readOverrides, recordChange, getHolder, updateHolder, listHolders, getNote } from './db.mjs';
+import { norm as sameName, whyTheyMatch } from './name-match.mjs';
 
 /* What a person may correct on an asset. The serial is the asset's identity
    rather than a field, so it is handled on its own. */
@@ -23,6 +24,7 @@ const EDITABLE = new Map([
   ['status', 'Status'], ['age_years', 'Age in years'], ['os', 'Operating system'],
   ['host_name', 'Host name'], ['specs', 'Specification'], ['remarks', 'Remark'],
   ['assigned_on', 'Assigned on'],
+  ['invoice_date', 'Invoice date'], ['purchased_on', 'Purchase date'],
 ]);
 export const assetFields = [...EDITABLE.entries()].map(([key, label]) => ({ key, label }));
 
@@ -34,6 +36,25 @@ export const LIST_KINDS = new Map([
 const norm = (value) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 const text = (value) => String(value ?? '').trim();
 const today = () => new Date().toISOString().slice(0, 10);
+
+/* The invoice and purchase dates are the only free-typed dates on an asset,
+   and both are optional. Kept as YYYY-MM-DD, which is what the date picker
+   sends, what sorts correctly, and what cannot be read as 3 April in one
+   place and 4 March in another. Anything else is refused rather than stored
+   and puzzled over later. */
+const DATE_FIELDS = new Set(['invoice_date', 'purchased_on']);
+const asDate = (value) => {
+  const asked = text(value);
+  if (!asked) return '';
+  /* Read back rather than only parsed: 31 February parses, as 3 March, so a
+     date that does not come back as it went in was never a real day. */
+  const shaped = /^\d{4}-\d{2}-\d{2}$/.test(asked);
+  const day = shaped ? new Date(`${asked}T00:00:00Z`) : null;
+  if (!day || Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== asked) {
+    throw new Error(`"${asked}" is not a date. Pick one from the calendar, or type it as YYYY-MM-DD.`);
+  }
+  return asked;
+};
 
 /* ---------- the controlled lists ---------- */
 
@@ -93,6 +114,29 @@ export const addValue = db.transaction((kind, raw, actor) => {
   return listValues(kind);
 });
 
+/** Deletes a word from a pick list, only when no asset uses it and the
+    resign settings do not name it. */
+export const deleteValue = db.transaction((kind, value, actor) => {
+  if (!LIST_KINDS.has(kind)) throw new Error('There is no such list.');
+  const row = db.prepare('SELECT value FROM lists WHERE kind = ? AND value = ?').get(kind, value);
+  if (!row) throw new Error('That is not on the list.');
+  const users = db.prepare(
+    `SELECT COUNT(*) AS n FROM devices
+      WHERE COALESCE(json_extract(overrides, '$.${kind}'), ${kind}) = ?`,
+  ).get(value).n;
+  if (users) {
+    throw new Error(`"${value}" is in use on ${users} ${users === 1 ? 'asset' : 'assets'}. `
+      + 'Change those first, then delete the word.');
+  }
+  const chosen = getNote('resign_statuses') || {};
+  if (kind === 'status' && Object.values(chosen).includes(value)) {
+    throw new Error(`"${value}" is chosen under When someone resigns. Pick another word there first.`);
+  }
+  db.prepare('DELETE FROM lists WHERE kind = ? AND value = ?').run(kind, value);
+  recordChange({ at: new Date().toISOString(), actor, field: `${kind} list`, was: value, now: '' });
+  return listValues(kind);
+});
+
 export const setValueFlag = db.transaction((kind, value, { assignable, retired }, actor) => {
   if (!LIST_KINDS.has(kind)) throw new Error('There is no such list.');
   const row = db.prepare('SELECT * FROM lists WHERE kind = ? AND value = ?').get(kind, value);
@@ -117,7 +161,8 @@ export const setValueFlag = db.transaction((kind, value, { assignable, retired }
 
 const ASSET_SELECT = `
   SELECT serial, asset_type, kind, model, status, holder_id, holder, assigned_on,
-         age_years, os, host_name, specs, remarks, overrides,
+         age_years, os, host_name, specs, remarks,
+         invoice_date, purchased_on, overrides,
          created_here, created_at, created_by,
          removed_at, removed_by, removed_reason
     FROM devices`;
@@ -146,6 +191,16 @@ export const getAsset = (serial) => {
   const row = db.prepare(`${ASSET_SELECT} WHERE serial = ? COLLATE NOCASE`).get(serial);
   return row ? toAsset(row) : null;
 };
+
+/* getAsset answers for a removed asset too, which listRemovedAssets needs, so
+   the routes that change one ask separately. Assigning a removed asset left a
+   row that was both removed and held: hidden from the register, missing from
+   the holder's list, and invisible to the guard that stops a holder being
+   deleted while they still hold something. */
+const isRemoved = (serial) => Boolean(
+  db.prepare('SELECT removed_at FROM devices WHERE serial = ? COLLATE NOCASE')
+    .get(serial)?.removed_at,
+);
 
 /* ---------- the holder's serial columns ---------- */
 
@@ -181,6 +236,9 @@ const writeOverrides = (serial, carried) => db.prepare('UPDATE devices SET overr
 export const updateAsset = db.transaction((serial, patch, actor, ticket = null) => {
   const before = getAsset(serial);
   if (!before) return null;
+  if (isRemoved(before.serial)) {
+    throw new Error('That asset is off the register. Put it back before correcting it.');
+  }
   const carried = { ...readOverrides(
     db.prepare('SELECT overrides FROM devices WHERE serial = ?').get(before.serial).overrides,
   ) };
@@ -189,7 +247,8 @@ export const updateAsset = db.transaction((serial, patch, actor, ticket = null) 
 
   for (const [key, value] of Object.entries(patch)) {
     if (!EDITABLE.has(key)) continue;
-    const next = value === null ? null : text(value).slice(0, 300);
+    let next = value === null ? null : text(value).slice(0, 300);
+    if (next !== null && DATE_FIELDS.has(key)) next = asDate(next);
 
     /* A status, asset type or model has to be one of the words the register
        knows. Picking from a list is what stops "Retired/Decommissioned" and
@@ -217,6 +276,12 @@ export const updateAsset = db.transaction((serial, patch, actor, ticket = null) 
   for (const [field, was, now] of changes) {
     recordChange({ at, actor, serial: before.serial, field, was, now, ticket });
   }
+  /* `kind` decides which of the holder's serial columns this asset lands in,
+     so changing it has to be carried through, or the holder goes on listing
+     a laptop that is now an iPad and the counts contradict the row. */
+  if (changes.some(([field]) => field === 'kind') && text(before.holder_id)) {
+    recomputeHolder(text(before.holder_id), actor, ticket);
+  }
   return getAsset(before.serial);
 });
 
@@ -225,6 +290,9 @@ export const updateAsset = db.transaction((serial, patch, actor, ticket = null) 
 export const renameAsset = db.transaction((serial, nextSerial, actor) => {
   const before = getAsset(serial);
   if (!before) return null;
+  if (isRemoved(before.serial)) {
+    throw new Error('That asset is off the register. Put it back before changing its serial.');
+  }
   const next = text(nextSerial).slice(0, 120);
   if (!next) throw new Error('A serial cannot be empty.');
   if (norm(next) === norm(before.serial)) return before;
@@ -241,16 +309,84 @@ export const renameAsset = db.transaction((serial, nextSerial, actor) => {
   return getAsset(next);
 });
 
+/* ---------- adding something that is already there ---------- */
+
+/* Where an asset is, in words, for the note shown when somebody tries to add
+   it again: so they can go and find it rather than make a second record. */
+const whereIs = (serial) => {
+  const row = db.prepare('SELECT serial, removed_at, removed_reason FROM devices WHERE serial = ? COLLATE NOCASE').get(serial);
+  const asset = row && getAsset(row.serial);
+  if (!asset) return '';
+  const what = [asset.asset_type || asset.kind, asset.model].filter(Boolean).join(' ');
+  if (row.removed_at) {
+    return `${what ? `${what}, ` : ''}taken off the register${row.removed_reason ? ` (${row.removed_reason})` : ''}. `
+      + 'If it is back, an admin can put it back from "Assets taken off the register" under the Assets table';
+  }
+  if (asset.held) return `${what ? `${what}, ` : ''}with ${asset.holder || 'somebody'}`;
+  return `${what ? `${what}, ` : ''}in stock${asset.status ? ` at "${asset.status}"` : ''}`;
+};
+
+/* A serial with its dashes, spaces and dots left out, so LAP001, lap 001 and
+   LAP-001 are seen as the same label typed three ways. */
+const serialKey = (serial) => text(serial).replace(/[^a-z0-9]/gi, '').toUpperCase();
+
+/* Who a person is, in words: their group and department, what they hold,
+   and whether they have left. */
+const whoIs = (id) => {
+  const holder = getHolder(id);
+  if (!holder) return '';
+  if (holder.merged_into) {
+    const into = getHolder(holder.merged_into);
+    return `folded into ${into ? into.name : holder.merged_into}, which is the record to use`;
+  }
+  const holds = listAssets().filter((asset) => asset.holder_id === id).map((asset) => asset.serial);
+  return [
+    [holder.type && holder.type !== 'Unknown' ? holder.type : '', holder.department].filter(Boolean).join(', '),
+    holds.length ? `holds ${holds.join(', ')}` : 'holds nothing',
+    holder.resigned ? 'marked resigned' : '',
+  ].filter(Boolean).join('; ');
+};
+
 export const addAsset = db.transaction((body, actor) => {
   const serial = text(body?.serial).slice(0, 120);
   if (!serial) throw new Error('An asset needs a serial number.');
+  /* The same serial is one piece of hardware, so it is never added twice,
+     whatever is ticked. One typed with different dashes or spaces is
+     probably the same label; it waits for a person to say it is not. */
   const clash = db.prepare('SELECT serial FROM devices WHERE serial = ? COLLATE NOCASE').get(serial);
-  if (clash) throw new Error(`${clash.serial} is already in the register.`);
+  if (clash) {
+    throw new Error(`${clash.serial} is already in the register: ${whereIs(clash.serial)}. `
+      + 'Search for it on Assets instead of adding it again.');
+  }
+  if (!body?.confirm && serialKey(serial)) {
+    const near = db.prepare('SELECT serial FROM devices').all()
+      .filter((row) => serialKey(row.serial) === serialKey(serial));
+    if (near.length) {
+      return { possibleDuplicates: near.map((row) => ({ serial: row.serial, about: whereIs(row.serial) })) };
+    }
+  }
 
-  const row = { serial, kind: text(body?.kind) || 'Other' };
+  /* `kind` decides the laptop and iPad columns on the holders table and how
+     the fleet chart groups, and it is not in EDITABLE — so a typo here could
+     never be corrected afterwards, only deleted and re-added. Checked against
+     the kinds the register already uses rather than a list written here, for
+     the same reason the status and model lists are seeded from the workbook. */
+  const askedKind = text(body?.kind);
+  if (askedKind) {
+    const known = new Set(db.prepare("SELECT DISTINCT kind FROM devices WHERE kind <> ''")
+      .all().map((r) => r.kind));
+    known.add('Other');
+    if (!known.has(askedKind)) {
+      throw new Error(`"${askedKind}" is not a kind this register uses. `
+        + `It uses: ${[...known].sort().join(', ')}.`);
+    }
+  }
+  const row = { serial, kind: askedKind || 'Other' };
   for (const key of ['asset_type', 'model', 'status', 'age_years', 'os', 'host_name', 'specs', 'remarks']) {
     row[key] = text(body?.[key]).slice(0, 300);
   }
+  /* Both optional: an asset bought years ago may have no paperwork to hand. */
+  for (const key of DATE_FIELDS) row[key] = asDate(body?.[key]);
   for (const kind of LIST_KINDS.keys()) {
     if (row[kind] && !knows(kind, row[kind])) {
       throw new Error(`"${row[kind]}" is not on the ${LIST_KINDS.get(kind).toLowerCase()} list. `
@@ -262,9 +398,11 @@ export const addAsset = db.transaction((body, actor) => {
   db.prepare(`
     INSERT INTO devices (serial, asset_type, kind, model, status, held, holder_id, holder,
                          assigned_on, age_years, os, host_name, specs, remarks,
+                         invoice_date, purchased_on,
                          created_here, created_at, created_by)
     VALUES (@serial, @asset_type, @kind, @model, @status, 0, NULL, NULL,
-            '', @age_years, @os, @host_name, @specs, @remarks, 1, @at, @actor)
+            '', @age_years, @os, @host_name, @specs, @remarks,
+            @invoice_date, @purchased_on, 1, @at, @actor)
   `).run({ ...row, at, actor });
   recordChange({ at, actor, serial, field: 'added to the register', was: '',
     now: [row.asset_type, row.model].filter(Boolean).join(' ') || row.kind });
@@ -279,11 +417,39 @@ export const addAsset = db.transaction((body, actor) => {
 export const addHolder = db.transaction((body, actor) => {
   const name = text(body?.name).slice(0, 120);
   if (!name) throw new Error('A person needs a name.');
-  const clash = db.prepare('SELECT id, name FROM holders WHERE name = ? COLLATE NOCASE').get(name);
-  if (clash) throw new Error(`${clash.name} is already in the register.`);
+  /* The same name, whatever its capitals and spacing, is refused with who
+     is already there. A name the duplicate finder would pair with somebody
+     (a slip of a letter, surname first, a middle name more or less) waits
+     for a person to say they really are two people. */
+  const everyone = db.prepare('SELECT id, name, merged_into FROM holders').all();
+  const clash = everyone.find((row) => sameName(row.name) === sameName(name));
+  if (clash) {
+    throw new Error(`${clash.name} is already in the register: ${whoIs(clash.id)}. `
+      + 'Find them on People instead of adding them again.');
+  }
+  if (!body?.confirm) {
+    const near = everyone.filter((row) => !row.merged_into)
+      .map((row) => ({ row, verdict: whyTheyMatch(name, row.name) }))
+      .filter(({ verdict }) => verdict)
+      .sort((a, b) => a.verdict.rank - b.verdict.rank)
+      .slice(0, 5);
+    if (near.length) {
+      return {
+        possibleDuplicates: near.map(({ row, verdict }) => ({
+          id: row.id, name: row.name, why: verdict.why, about: whoIs(row.id),
+        })),
+      };
+    }
+  }
 
   const type = ['Sales', 'HO', 'Unknown'].includes(body?.type) ? body.type : 'Unknown';
-  const last = db.prepare("SELECT id FROM holders WHERE id LIKE 'N%' ORDER BY id DESC LIMIT 1").get();
+  /* Ordered as a number, not as text. Once N999 existed, 'N1000' sorted below
+     it as a string, so this kept returning N999 and handing out N1000 for
+     ever — a primary key clash on every add after the thousandth. GLOB keeps
+     a stray non-numeric N-id out of the arithmetic. */
+  const last = db.prepare(
+    "SELECT id FROM holders WHERE id GLOB 'N[0-9]*' ORDER BY CAST(substr(id, 2) AS INTEGER) DESC LIMIT 1",
+  ).get();
   const id = `N${String((last ? Number(last.id.slice(1)) : 0) + 1).padStart(3, '0')}`;
   const at = new Date().toISOString();
 
@@ -345,9 +511,23 @@ export const assignReasons = (asset, holder) => {
   return reasons;
 };
 
+/** What a hand-out would run into, without making it: the page asks this
+    before the ticket goes in, so the warning is read before anything is
+    handed to a leaver or to a second person. */
+export const previewAssign = (serial, holderId) => {
+  const asset = getAsset(serial);
+  if (!asset) return { error: 'No asset with that serial.' };
+  const holder = getHolder(holderId);
+  if (!holder) return { error: 'No such person in the register.' };
+  return { reasons: text(asset.holder_id) === holder.id ? [] : assignReasons(asset, holder) };
+};
+
 export const assignAsset = db.transaction((serial, holderId, { actor, ticket = null } = {}) => {
   const asset = getAsset(serial);
   if (!asset) return { error: 'No asset with that serial.' };
+  if (isRemoved(asset.serial)) {
+    return { error: 'That asset is off the register. Put it back before handing it out.' };
+  }
   const holder = getHolder(holderId);
   if (!holder) return { error: 'No such person in the register.' };
   if (text(asset.holder_id) === holder.id) {
@@ -367,8 +547,19 @@ export const assignAsset = db.transaction((serial, holderId, { actor, ticket = n
   carried.holder = holder.name;
   carried.assigned_on = today();
   /* Something in somebody's hands is assigned, whatever the sheet said. */
+  /* "Unassigned" and "Reassigned" both contain "ssigned", and there was no
+     ORDER BY — so whichever row SQLite happened to hand back first became the
+     status of a hand-out, possibly "Unassigned", and possibly a different
+     answer on the next run. */
   const assigned = db.prepare(
-    "SELECT value FROM lists WHERE kind = 'status' AND assignable = 1 AND value LIKE '%ssigned%' LIMIT 1",
+    `SELECT value FROM lists
+      WHERE kind = 'status' AND assignable = 1 AND retired = 0
+        AND lower(value) LIKE '%assigned%'
+        AND lower(value) NOT LIKE '%unassigned%'
+        AND lower(value) NOT LIKE '%reassigned%'
+        AND lower(value) NOT LIKE '%not assigned%'
+      ORDER BY length(value), value
+      LIMIT 1`,
   ).get();
   if (assigned) carried.status = assigned.value;
   writeOverrides(asset.serial, carried);
@@ -424,6 +615,18 @@ export const mergeHolders = db.transaction((loserId, keeperId, actor) => {
   const loser = getHolder(loserId);
   const keeper = getHolder(keeperId);
   if (!loser || !keeper) return { error: 'One of those records is not in the register.' };
+  /* Folding something already folded, or into something already folded, makes
+     a chain the register cannot show: both rows drop out of the holder list
+     and their hardware belongs to nobody visible. Two folds in opposite
+     directions make a cycle that hides both people for good. foldAll resolves
+     chains before it calls this; the single-pair route did not. */
+  for (const row of db.prepare('SELECT id, merged_into FROM holders WHERE id IN (?, ?)')
+    .all(loserId, keeperId)) {
+    if (!row.merged_into) continue;
+    return row.id === keeperId
+      ? { error: 'That record is itself folded into another. Fold into the kept one instead.' }
+      : { error: 'That record is already folded into another. Put it back first.' };
+  }
 
   const at = new Date().toISOString();
   const mine = listAssets().filter((asset) => text(asset.holder_id) === loser.id
@@ -485,20 +688,26 @@ export const listMerged = () => db.prepare(
    it holds nothing. Anything from the workbook is folded instead, or the
    next import simply brings it back. */
 export const deleteHolder = db.transaction((id, actor) => {
+  /* Any record, not only one typed in here: the workbook is retired, so
+     there is no next import to bring a deleted one back. */
   const row = db.prepare('SELECT id, name, created_here FROM holders WHERE id = ?').get(id);
   if (!row) return { error: 'No such record.' };
-  if (!row.created_here) {
-    return {
-      error: `${row.name} came from the workbook, so deleting the record here would last until the `
-        + 'next import and no longer. Fold it into the record you are keeping instead.',
-    };
-  }
   const holding = listAssets().filter((asset) => text(asset.holder_id) === id);
   if (holding.length) {
     return {
       error: `${row.name} still holds ${holding.length} `
         + `${holding.length === 1 ? 'asset' : 'assets'} (${holding.map((a) => a.serial).join(', ')}). `
         + 'Take those back first, so the hardware is not lost with the record.',
+    };
+  }
+  /* A fold is the only thing keeping the folded record out of the holder
+     list. Delete the keeper and those records point at nothing and are
+     invisible for good, with listMerged showing a blank name beside them. */
+  const foldedIn = db.prepare('SELECT COUNT(*) AS n FROM holders WHERE merged_into = ?').get(id).n;
+  if (foldedIn) {
+    return {
+      error: `${row.name} has ${foldedIn} record${foldedIn === 1 ? '' : 's'} folded into it. `
+        + 'Put those back first, or they would be left pointing at a record that is gone.',
     };
   }
   db.prepare('DELETE FROM holders WHERE id = ?').run(id);
@@ -612,18 +821,16 @@ export const removeAsset = db.transaction((serial, { actor, reason, hard = false
   /* Something added here has no workbook row to come back from, so it can
      go for good — and only then. */
   if (hard) {
-    if (!asset.createdHere) {
-      return {
-        error: `${asset.serial} came from the workbook, so deleting it here would last until the `
-          + 'next import and no longer. Take it off the register instead; that survives an import '
-          + 'and can be undone.',
-      };
-    }
     db.prepare('DELETE FROM devices WHERE serial = ?').run(asset.serial);
     recordChange({ at, actor, serial: asset.serial, field: 'deleted from the register',
       was: [asset.asset_type, asset.model].filter(Boolean).join(' ') || asset.kind, now: why });
     return { deleted: asset.serial };
   }
+
+  /* Taking off an asset that is already off overwrote removed_at, removed_by
+     and the reason, and logged a second entry — losing who first took it off
+     and why. */
+  if (isRemoved(asset.serial)) return { already: true, removed: asset.serial };
 
   db.prepare('UPDATE devices SET removed_at = ?, removed_by = ?, removed_reason = ? WHERE serial = ?')
     .run(at, actor, why, asset.serial);
@@ -633,12 +840,16 @@ export const removeAsset = db.transaction((serial, { actor, reason, hard = false
 });
 
 export const restoreAsset = db.transaction((serial, actor) => {
-  const row = db.prepare('SELECT serial, removed_at FROM devices WHERE serial = ?').get(serial);
+  /* Case-insensitively, like every other serial lookup here. Matching exactly
+     meant restore refused a serial the rest of the app resolves without
+     complaint. */
+  const row = db.prepare('SELECT serial, removed_at FROM devices WHERE serial = ? COLLATE NOCASE')
+    .get(serial);
   if (!row) return { error: 'No asset with that serial.' };
   if (!row.removed_at) return { error: 'That asset is on the register already.' };
   db.prepare('UPDATE devices SET removed_at = NULL, removed_by = NULL, removed_reason = NULL WHERE serial = ?')
-    .run(serial);
-  recordChange({ at: new Date().toISOString(), actor, serial, field: 'put back on the register',
-    was: 'off the register', now: 'on it' });
-  return { asset: getAsset(serial) };
+    .run(row.serial);
+  recordChange({ at: new Date().toISOString(), actor, serial: row.serial,
+    field: 'put back on the register', was: 'off the register', now: 'on it' });
+  return { asset: getAsset(row.serial) };
 });

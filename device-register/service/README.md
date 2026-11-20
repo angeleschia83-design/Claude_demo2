@@ -1,57 +1,10 @@
-# Running it so it stays up
+# Keeping it running on a Linux server
 
-`START-ON-WINDOWS.bat` and `START-ON-MAC.command` run the register **inside
-your login session**. That is right for trying it on a laptop and wrong for a
-server: Windows ends a session's processes when you log off, so the register
-stops the moment whoever started it disconnects. Nothing is broken when that
-happens — the server is up, the process is not.
+On **Windows**, use `KEEP-RUNNING-ON-SERVER.bat` in the folder above. It is
+the supported route and nothing in here is needed.
 
-A server needs it running as a service: started at boot, with nobody logged
-in, restarted if it stops.
-
-## Windows
-
-From an **Administrator** PowerShell, in the folder you unzipped:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File service\install-windows.ps1
-```
-
-It registers a scheduled task called **Device register** that:
-
-- starts at boot and runs as `SYSTEM`, so no login is involved
-- restarts itself a minute after any stop
-- has no time limit, so Windows never ends it for running too long
-- writes everything to `logs\server.log`, rolled at 5 MB, one old copy kept
-
-It checks `/healthz` before it finishes and tells you if the register did not
-answer.
-
-Afterwards:
-
-```powershell
-Get-ScheduledTask -TaskName 'Device register'     # is it registered
-Stop-ScheduledTask  -TaskName 'Device register'   # stop it
-Start-ScheduledTask -TaskName 'Device register'   # start it
-Get-Content logs\server.log -Wait -Tail 20        # watch it
-powershell -ExecutionPolicy Bypass -File service\uninstall-windows.ps1
-```
-
-**A service account instead of SYSTEM**, if your policy wants least privilege:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File service\install-windows.ps1 `
-  -UserId 'DOMAIN\svc-device-register' -Password 'the password'
-```
-
-That account needs **Log on as a batch job** and read/write on this folder.
-
-**Two things that catch people out.** Keep the folder on a local disk: as
-`SYSTEM` the task cannot reach a mapped drive or a user profile path. And
-open the port in Windows Firewall if people reach the register from other
-machines — nothing in the app does that for you.
-
-## Linux
+This folder holds the **Linux** equivalent: a systemd unit, so the register
+starts at boot, runs with nobody logged in, and is restarted if it stops.
 
 ```bash
 sudo cp service/device-register.service /etc/systemd/system/
@@ -59,19 +12,20 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now device-register
 ```
 
-Edit `User`, `Group` and `WorkingDirectory` in the unit first if the register
-does not live in `/opt/device-register`.
+Before the first start, change `User`, `Group`, `WorkingDirectory`,
+`EnvironmentFile` and `ReadWritePaths` in the unit to match where you put the
+register. They all assume `/opt/device-register` and a `device-register`
+account that owns it.
+
+Then:
 
 ```bash
-systemctl status device-register
-journalctl -u device-register -f
+systemctl status device-register        # is it up
+journalctl -u device-register -f        # watch it
+sudo systemctl restart device-register  # after an upgrade
 ```
 
-The unit restarts on failure and confines the process: no new privileges, a
-read-only system apart from its own folder, no access to home directories.
-
-## Either way
-
-The register still binds to localhost by design and expects a reverse proxy
-to terminate TLS. Set `PUBLIC_URL` in `.env` to the address people use, or
-the invite links you hand out will carry an address nobody can reach.
+The unit is deliberately tight: no new privileges, a private `/tmp`, a
+read-only system with write access only to the register's own folder, and
+only the address families it needs. If the register cannot write its database
+or its `backups` folder, `ReadWritePaths` is the line to look at.

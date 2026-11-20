@@ -80,6 +80,76 @@
     if (state) el.dataset.state = state; else el.removeAttribute('data-state');
   };
 
+  /* ---------- the ticket number every audited change carries ---------- */
+
+  /* The last one typed is offered again: a batch of hand-outs usually
+     belongs to the one request. */
+  let lastTicket = '';
+  const rememberTicket = (value) => { if (value) lastTicket = value; return value; };
+  let ticketDone = null;
+
+  function finishTicket(value) {
+    const done = ticketDone;
+    ticketDone = null;
+    if ($('ticket-dlg').open) $('ticket-dlg').close();
+    if (done) done(value);
+  }
+
+  /** Asks for a ticket number before a change the change log must be able
+      to trace. Resolves to the number, or null when somebody cancels. */
+  function askTicket({ title = 'Ticket number', text = '', go = 'Save' } = {}) {
+    if (ticketDone) finishTicket(null);
+    $('ticket-title').textContent = title;
+    $('ticket-text').textContent = text;
+    $('ticket-go').textContent = go;
+    $('ticket-in').value = lastTicket;
+    const line = $('ticket-line');
+    line.textContent = '\u00a0';
+    line.removeAttribute('data-state');
+    $('ticket-dlg').showModal();
+    $('ticket-in').focus();
+    $('ticket-in').select();
+    return new Promise((resolve) => { ticketDone = resolve; });
+  }
+
+  $('ticket-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    const value = $('ticket-in').value.trim();
+    if (!value) {
+      $('ticket-line').textContent = 'A ticket number is needed, so this can be looked up later.';
+      $('ticket-line').dataset.state = 'bad';
+      $('ticket-in').focus();
+      return;
+    }
+    finishTicket(rememberTicket(value));
+  });
+  $('ticket-cancel').addEventListener('click', () => finishTicket(null));
+  $('ticket-dlg').addEventListener('close', () => finishTicket(null));
+
+  /* ---------- what is waiting to come back, read once for everyone ---------- */
+
+  /* The resign pop-up, Needs attention, the dashboard and the tags on both
+     tables all need the to-retrieve list and the resign status words. One
+     request each, shared, rather than one per part of the page. */
+  let EXTRAS = { retrieve: { status: null, rows: [] }, statuses: null };
+  let WAITING = new Map();
+  let extrasLoading = null;
+  function loadExtras() {
+    if (!extrasLoading) {
+      extrasLoading = Promise.all([api('/api/retrieve'), api('/api/resign-statuses')])
+        .then(([retrieve, statuses]) => {
+          EXTRAS = { retrieve, statuses };
+          WAITING = new Map(retrieve.rows.map((row) => [row.serial, row]));
+          return EXTRAS;
+        })
+        .catch(() => EXTRAS)
+        .finally(() => { extrasLoading = null; });
+    }
+    return extrasLoading;
+  }
+
+  const assetsNow = () => (window.register && window.register.assets ? window.register.assets() : null);
+
   /* ---------- filtering and sorting ---------- */
 
   const matches = (r) => {
@@ -103,16 +173,17 @@
 
   /* ---------- drawing ---------- */
 
-  function tiles() {
-    const res = HOLDERS.filter((r) => r.resigned);
-    const unset = HOLDERS.filter((r) => r.type === 'Unknown').length;
-    $('t-people').textContent = nf.format(HOLDERS.length);
+  function tiles(rows = HOLDERS) {
+    const res = rows.filter((r) => r.resigned);
+    const unset = rows.filter((r) => r.type === 'Unknown').length;
+    $('t-people').textContent = nf.format(rows.length);
     $('t-people-s').textContent = unset ? `${nf.format(unset)} still have no type` : 'every one has a type';
-    $('t-lap').textContent = nf.format(HOLDERS.reduce((a, r) => a + r.nL, 0));
-    $('t-lap-s').textContent = `held by ${nf.format(HOLDERS.filter((r) => r.nL > 0).length)} people`;
-    $('t-ipd').textContent = nf.format(HOLDERS.reduce((a, r) => a + r.nI, 0));
-    $('t-ipd-s').textContent = `held by ${nf.format(HOLDERS.filter((r) => r.nI > 0).length)} people`;
-    $('t-both').textContent = nf.format(HOLDERS.filter((r) => r.status === 'Both').length);
+    $('t-lap').textContent = nf.format(rows.reduce((a, r) => a + r.nL, 0));
+    const people = (n) => `${nf.format(n)} ${n === 1 ? 'person' : 'people'}`;
+    $('t-lap-s').textContent = `held by ${people(rows.filter((r) => r.nL > 0).length)}`;
+    $('t-ipd').textContent = nf.format(rows.reduce((a, r) => a + r.nI, 0));
+    $('t-ipd-s').textContent = `held by ${people(rows.filter((r) => r.nI > 0).length)}`;
+    $('t-both').textContent = nf.format(rows.filter((r) => r.status === 'Both').length);
     $('t-res').textContent = nf.format(res.length);
     const owed = res.reduce((a, r) => a + r.n, 0);
     $('t-res-s').textContent = res.length
@@ -120,11 +191,11 @@
       : 'nobody tagged yet';
   }
 
-  function mix() {
+  function mix(rows = HOLDERS) {
     const box = $('mix');
     box.replaceChildren();
     for (const [key, label] of GROUPS) {
-      const group = HOLDERS.filter((r) => r.type === key);
+      const group = rows.filter((r) => r.type === key);
       const row = document.createElement('div');
       row.className = 'bar-row';
 
@@ -135,7 +206,9 @@
       name.textContent = label;
       const meta = document.createElement('span');
       meta.className = 'm';
-      meta.textContent = `${nf.format(group.length)} people · ${nf.format(group.reduce((a, r) => a + r.n, 0))} units`;
+      const units = group.reduce((a, r) => a + r.n, 0);
+      meta.textContent = `${nf.format(group.length)} ${group.length === 1 ? 'person' : 'people'}, `
+        + `${nf.format(units)} ${units === 1 ? 'unit' : 'units'}`;
       lab.append(name, meta);
 
       const bar = document.createElement('div');
@@ -155,15 +228,15 @@
     }
   }
 
-  function fleet() {
+  function fleet(rows = FLEET) {
     const box = $('fleet');
     box.replaceChildren();
-    const top = FLEET.slice(0, 10);
+    const top = rows.slice(0, 10);
     const max = top.length ? top[0].n : 1;
     for (const m of top) {
       const row = document.createElement('div');
       row.className = 'fleet-row';
-      row.title = `${m.model} — ${nf.format(m.n)} assigned`;
+      row.title = `${m.model}: ${nf.format(m.n)} assigned`;
       const name = document.createElement('div');
       name.className = 'm';
       name.textContent = m.model;
@@ -172,7 +245,7 @@
       const fill = document.createElement('div');
       fill.className = 'fleet-fill';
       fill.style.width = `${Math.max(2, (m.n / max) * 100)}%`;
-      fill.style.background = m.kind === 'iPad' ? 'var(--ipad)' : 'var(--laptop)';
+      fill.style.background = m.kind === 'iPad' ? 'var(--color-ipad)' : 'var(--color-laptop)';
       track.appendChild(fill);
       const count = document.createElement('div');
       count.className = 'c';
@@ -199,12 +272,14 @@
       const i = HOLDERS.findIndex((row) => row.id === r.id);
       if (i >= 0) HOLDERS[i] = updated;
       say('Saved.', 'good');
-      tiles();
-      mix();
+      if (window.register && window.register.redrawDashboard) window.register.redrawDashboard();
+      else { tiles(); mix(); }
       tr.replaceWith(buildRow(updated));
+      refreshLog();
     } catch (e) {
       if (revert) revert();
-      say(e.status === 403 ? 'Your link lets you look, not change.' : `Not saved: ${e.message}`, 'bad');
+      say(e.status === 403 && !/resigned/i.test(e.message)
+        ? 'Your link lets you look, not change.' : `Not saved: ${e.message}`, 'bad');
       tr.classList.remove('is-saving');
     }
   }
@@ -234,7 +309,11 @@
       }
     };
     paint();
-    if (!canEdit()) { tr.appendChild(td); return td; }
+    if (!canEdit() || lockedFor(r)) {
+      td.querySelector('.undo')?.remove();
+      tr.appendChild(td);
+      return td;
+    }
 
     td.tabIndex = 0;
     const open = () => {
@@ -270,16 +349,47 @@
     return td;
   }
 
+  /* Somebody who has left is read-only except to an admin, so a
+     record kept for the audit cannot drift after the fact. */
+  const lockedFor = (r) => Boolean(r.resigned) && session.role !== 'admin';
+
+  /* What a leaver still has to hand back, said on their row so nobody has
+     to go to Needs attention to find out. */
+  function leaverTag(r) {
+    const assets = assetsNow();
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    if (!assets) {
+      tag.textContent = r.n ? `${r.n} on their name` : 'all back';
+      if (r.n) tag.classList.add('tag-wait');
+      return tag;
+    }
+    const held = assets.filter((a) => a.holder_id === r.id);
+    const waiting = held.filter((a) => WAITING.has(a.serial)).length;
+    const open = held.length - waiting;
+    const bits = [];
+    if (waiting) bits.push(`${waiting} to retrieve`);
+    if (open) bits.push(`${open} not decided`);
+    tag.textContent = bits.length ? bits.join(', ') : 'all back';
+    if (bits.length) tag.classList.add('tag-wait');
+    return tag;
+  }
+
   function buildRow(r) {
     const tr = document.createElement('tr');
     tr.dataset.id = r.id;
     if (r.resigned) tr.classList.add('is-resigned');
+    const locked = lockedFor(r);
+    if (locked && canEdit()) tr.classList.add('is-locked');
     /* Who touched this record last, without having to go and look it up. */
     if (r.updated_by) {
       tr.title = `Last changed by ${r.updated_by}`
         + (r.updated_at
           ? ` on ${new Date(r.updated_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}`
           : '');
+    }
+    if (locked && canEdit()) {
+      tr.title = `${tr.title ? `${tr.title}. ` : ''}Resigned: only an admin can change this record.`;
     }
 
     for (const field of FIELDS) {
@@ -298,7 +408,7 @@
           td.textContent = cellText(r, field.key);
         }
       } else if (field.kind === 'choice') {
-        if (canEdit()) {
+        if (canEdit() && !locked) {
           const sel = document.createElement('select');
           sel.className = 'sel';
           sel.setAttribute('aria-label', `${field.label} for ${r.name}`);
@@ -320,8 +430,32 @@
           const box = document.createElement('input');
           box.type = 'checkbox';
           box.checked = r.resigned;
-          box.setAttribute('aria-label', `Mark ${r.name} resigned`);
-          box.addEventListener('change', () => patch(tr, r, { resigned: box.checked }));
+          box.disabled = locked;
+          box.setAttribute('aria-label', locked
+            ? `${r.name} is resigned; only an admin can change that`
+            : `Mark ${r.name} resigned`);
+          box.addEventListener('change', async () => {
+            /* Ticking always opens the pop-up, for somebody holding nothing
+               too: it asks what happens to any hardware, and it asks for the
+               ticket. The box stays unticked until that is saved. */
+            const reg = window.register;
+            if (box.checked) {
+              box.checked = false;
+              if (reg && reg.openResign) reg.openResign(r);
+              return;
+            }
+            /* Unticking, which only an admin can reach on a resigned row. */
+            box.checked = true;
+            const ticket = await askTicket({
+              title: `${r.name} is not resigned after all`,
+              text: 'They go back to being current staff. Hardware tagged To retrieve keeps that status '
+                + 'until somebody changes it.',
+              go: 'Untick resigned',
+            });
+            if (!ticket) return;
+            box.checked = false;
+            patch(tr, r, { resigned: false, ticket }, () => { box.checked = true; });
+          });
           const text = document.createElement('span');
           text.textContent = 'Resigned';
           label.append(box, text);
@@ -331,6 +465,12 @@
           pill.className = 'pill';
           pill.textContent = 'Resigned';
           td.appendChild(pill);
+        }
+        if (r.resigned) {
+          const line = document.createElement('div');
+          line.className = 'tagline';
+          line.appendChild(leaverTag(r));
+          td.appendChild(line);
         }
         if (r.lwd) {
           const when = document.createElement('div');
@@ -380,7 +520,7 @@
     if (view.res) bits.push('resigned');
     if (view.q.trim()) bits.push(`matching \u201c${view.q.trim()}\u201d`);
     $('count').textContent = `Showing ${nf.format(list.length)} of ${nf.format(HOLDERS.length)} holders`
-      + (bits.length ? ` \u2014 ${bits.join(', ')}` : '') + '.';
+      + (bits.length ? `: ${bits.join(', ')}` : '') + '.';
   }
 
   /* The header is built from FIELDS too, so a column cannot drift from the
@@ -407,7 +547,13 @@
     }
   }
 
-  const draw = () => { tiles(); mix(); fleet(); table(); summary(); };
+  /* The dashboard redraws its own cards, with whatever filters are set. */
+  const draw = () => {
+    if (window.register && window.register.redrawDashboard) window.register.redrawDashboard();
+    else { tiles(); mix(); fleet(); }
+    table();
+    summary();
+  };
 
   /* ---------- asset summary ---------- */
 
@@ -488,7 +634,7 @@
     const counted = drawPivot('sum-type-head', 'sum-type-body', rows, 'type', 'status', 'Asset type');
     $('sum-line').textContent = counted === SUMMARY.total
       ? `All ${nf.format(SUMMARY.total)} assets in the inventory are counted below.`
-      : `${nf.format(counted)} counted of ${nf.format(SUMMARY.total)} assets \u2014 tell Claude, this should never happen.`;
+      : `${nf.format(counted)} counted of ${nf.format(SUMMARY.total)} assets. Tell IT, this should never happen.`;
 
     const pick = $('sum-pick');
     const types = [...new Set(rows.map((r) => r.type))].sort();
@@ -533,9 +679,10 @@
     const box = $('problems');
     box.replaceChildren();
     const blocks = [];
-    if (PROBLEMS.duplicatePeople && PROBLEMS.duplicatePeople.length) {
-      blocks.push(duplicateBlock(PROBLEMS.duplicatePeople));
-    }
+    /* Duplicates are about people, so they live on the People tab. */
+    const pairs = PROBLEMS.duplicatePeople || [];
+    $('dupes').replaceChildren(...(pairs.length ? [duplicateBlock(pairs)] : []));
+    $('dupes-card').hidden = pairs.length === 0;
 
     if (PROBLEMS.duplicates.length) {
       blocks.push(problemBlock(
@@ -543,34 +690,34 @@
         'One serial is one piece of hardware, so each is counted once here, taking the assigned record '
         + 'over the spare one. Worth correcting in the workbook so the two agree.',
         PROBLEMS.duplicates.map((d) =>
-          `${d.serial} \u2014 ${d.asset_type}, listed as ${d.statuses.join(' and ')}`
+          `${d.serial}: ${d.asset_type}, listed as ${d.statuses.join(' and ')}`
           + (d.holder ? `, assigned to ${d.holder}` : ''))));
     }
     if (PROBLEMS.noStatus.length) {
       blocks.push(problemBlock('Assets with no status', 'Nothing says whether these are in use, spare or retired.',
-        PROBLEMS.noStatus.map((d) => `${d.serial} \u2014 ${d.asset_type || 'no asset type'}`
+        PROBLEMS.noStatus.map((d) => `${d.serial}: ${d.asset_type || 'no asset type'}`
           + (d.holder ? `, with ${d.holder}` : ''))));
     }
     if (PROBLEMS.noModel.length) {
       blocks.push(problemBlock('Laptops and iPads with no model', 'They are counted, but under "No model recorded".',
-        PROBLEMS.noModel.map((d) => `${d.serial} \u2014 ${d.asset_type}`
+        PROBLEMS.noModel.map((d) => `${d.serial}: ${d.asset_type}`
           + (d.holder ? `, with ${d.holder}` : ''))));
     }
     if (PROBLEMS.oddStatus.length) {
       blocks.push(problemBlock('Statuses used once or twice',
         'Usually a typo or a different capitalisation of a status that already exists.',
-        PROBLEMS.oddStatus.map((d) => `"${d.status}" \u2014 ${d.n} asset${d.n === 1 ? '' : 's'}`)));
+        PROBLEMS.oddStatus.map((d) => `\u201c${d.status}\u201d: ${d.n} asset${d.n === 1 ? '' : 's'}`)));
     }
     if (PROBLEMS.noType.length) {
       blocks.push(problemBlock('Holders with no type',
         'No job title was found for them, so they are neither Sales nor HO. Set one in the register above.',
-        PROBLEMS.noType.map((h) => `${h.name} \u2014 ${h.n} device${h.n === 1 ? '' : 's'}`)));
+        PROBLEMS.noType.map((h) => `${h.name}: ${h.n} device${h.n === 1 ? '' : 's'}`)));
     }
     if (PROBLEMS.offRegister.length) {
       blocks.push(problemBlock('Holders on neither HR sheet',
         'They hold hardware but HR lists them as neither active nor resigned. Some are contractors or '
         + 'shared machines rather than people.',
-        PROBLEMS.offRegister.map((h) => `${h.name} \u2014 ${h.n} device${h.n === 1 ? '' : 's'}`
+        PROBLEMS.offRegister.map((h) => `${h.name}: ${h.n} device${h.n === 1 ? '' : 's'}`
           + (h.department ? `, ${h.department}` : ''))));
     }
     if (PROBLEMS.assignedToNobody && PROBLEMS.assignedToNobody.length) {
@@ -578,7 +725,7 @@
         'The status says somebody has it and no name is recorded. Hand it out from the Assets section '
         + 'to say who, or put it back in stock.',
         PROBLEMS.assignedToNobody.slice(0, 200).map((d) =>
-          `${d.serial} — ${[d.asset_type, d.model].filter(Boolean).join(' ')}`)));
+          `${d.serial}: ${[d.asset_type, d.model].filter(Boolean).join(' ')}`)));
     }
     if (PROBLEMS.noAge) {
       blocks.push(problemBlock('Assets with no age recorded',
@@ -592,8 +739,6 @@
 
   /* ---------- changes handed back from the offline copy ---------- */
 
-  let PLAN = null;
-
   const mergeSay = (text, state) => {
     const el = $('merge-line');
     el.textContent = text;
@@ -602,13 +747,12 @@
 
   const WHY = {
     change: '',
-    clash: 'Someone here changed this too — tick it only if theirs is the right one.',
+    clash: 'Someone here changed this too: tick it only if theirs is the right one.',
     same: 'Already says this.',
     missing: 'No holder of that name in the register.',
   };
 
   function drawPlan(plan) {
-    PLAN = plan;
     const body = $('merge-body');
     body.replaceChildren();
 
@@ -627,7 +771,7 @@
       }
       tr.appendChild(pick);
 
-      const now = row.state === 'missing' && !row.was ? '\u2014' : (row.was || '(empty)');
+      const now = row.state === 'missing' && !row.was ? '(none)' : (row.was || '(empty)');
       for (const text of [row.holder, row.label, now, row.becomes || '(cleared)']) {
         const td = document.createElement('td');
         td.textContent = text;
@@ -685,7 +829,6 @@
   $('merge-clear').addEventListener('click', () => {
     $('merge-text').value = '';
     $('merge-result').hidden = true;
-    PLAN = null;
     mergeSay('\u00a0');
   });
   $('merge-all').addEventListener('change', (event) => {
@@ -697,26 +840,40 @@
   $('merge-apply').addEventListener('click', async () => {
     const keys = picked();
     if (!keys.length) { mergeSay('Nothing is ticked.', 'bad'); return; }
+    const ticket = await askTicket({
+      title: `Apply ${keys.length} change${keys.length === 1 ? '' : 's'}`,
+      text: 'The ticket goes on every change-log line this paste writes.',
+      go: 'Apply',
+    });
+    if (!ticket) return;
     $('merge-apply').disabled = true;
     mergeSay('Applying…');
     try {
       const out = await api('/api/merge/apply', {
         method: 'POST',
-        body: JSON.stringify({ text: $('merge-text').value.trim(), picked: keys }),
+        body: JSON.stringify({ text: $('merge-text').value.trim(), picked: keys, ticket }),
       });
       HOLDERS = out.holders;
       FLEET = out.fleet;
       draw();
       $('merge-result').hidden = true;
       $('merge-text').value = '';
-      PLAN = null;
       const across = [
         out.people ? `${out.people} ${out.people === 1 ? 'person' : 'people'}` : '',
         out.assets ? `${out.assets} asset${out.assets === 1 ? '' : 's'}` : '',
       ].filter(Boolean).join(' and ');
+      /* Rows the register refused — an unknown status or model, usually.
+         These were dropped silently before, so the count simply came back
+         lower than the number ticked and nothing said why. */
+      const refused = out.rejected || [];
       mergeSay(`Applied ${out.fields} change${out.fields === 1 ? '' : 's'}`
         + `${across ? ` across ${across}` : ''}`
-        + `${out.from ? `, from ${out.from}` : ''}. Each one is in the change log.`, 'good');
+        + `${out.from ? `, from ${out.from}` : ''}. Each one is in the change log.`
+        + (refused.length
+          ? ` ${refused.length} not applied: ${refused.slice(0, 3)
+            .map((r) => `${r.serial} (${r.why})`).join('; ')}`
+            + `${refused.length > 3 ? `, and ${refused.length - 3} more` : ''}.`
+          : ''), refused.length ? '' : 'good');
       refreshLog();
       window.dispatchEvent(new CustomEvent('assets-changed'));
     } catch (e) {
@@ -742,7 +899,7 @@
     const note = document.createElement('p');
     note.className = 'muted';
     note.textContent = 'One person entered twice holds some of their hardware under each name. '
-      + 'Keeping one record moves the other\u2019s hardware onto it and folds it away — which an '
+      + 'Keeping one record moves the other\u2019s hardware onto it and folds it away, which an '
       + 'import cannot undo, unlike deleting. No hardware is ever removed: it all ends up on the '
       + 'record you keep.';
     card.appendChild(note);
@@ -769,13 +926,13 @@
             const line = document.createElement('div');
             line.textContent = row.error
               ? `${row.folded} could not be folded: ${row.error}`
-              : `${row.folded} \u2192 ${row.kept} \u2014 ${row.moved} asset${row.moved === 1 ? '' : 's'} `
+              : `${row.folded} \u2192 ${row.kept}: ${row.moved} asset${row.moved === 1 ? '' : 's'} `
                 + `moved, ${row.kept} now holds ${row.now}. ${row.why}`;
             result.appendChild(line);
           }
           say(`${out.folded} ${out.folded === 1 ? 'pair' : 'pairs'} folded. No hardware moved out of `
-            + 'the register — it is all on the records that were kept. Any one of them can be put '
-            + 'back from the sharing section.', 'good');
+            + 'the register: it is all on the records that were kept. Any one of them can be put '
+            + 'back under Settings, Records folded into another.', 'good');
           refreshLog();
           window.dispatchEvent(new CustomEvent('assets-changed'));
           loadFolded();
@@ -813,7 +970,7 @@
           `${person.n} device${person.n === 1 ? '' : 's'}`,
           person.createdHere ? 'added here' : '',
         ].filter(Boolean).join(' \u00b7 ');
-        line.appendChild(document.createTextNode(` \u2014 ${rest}`));
+        line.appendChild(document.createTextNode(`: ${rest}`));
         if (person.lap || person.ipd) {
           const serials = document.createElement('span');
           serials.className = 'pair-ser';
@@ -869,7 +1026,7 @@
     draw();
     say(`${out.folded} folded into ${out.keeper.name}`
       + `${out.moved ? `, and ${out.moved} asset${out.moved === 1 ? '' : 's'} moved across` : ''}. `
-      + 'An admin can put it back from the sharing section.', 'good');
+      + 'An admin can put it back under Settings, Records folded into another.', 'good');
     refreshLog();
     window.dispatchEvent(new CustomEvent('assets-changed'));
     if (session.role === 'admin') { loadFolded(); loadAdded(); }
@@ -891,6 +1048,7 @@
     ['asset_type', 'Asset type'], ['kind', 'Kind'], ['model', 'Model'], ['status', 'Status'],
     ['age_years', 'Age in years'], ['os', 'Operating system'], ['host_name', 'Host name'],
     ['specs', 'Specification'], ['remarks', 'Remark'], ['assigned_on', 'Assigned on'],
+    ['invoice_date', 'Invoice date'], ['purchased_on', 'Purchase date'],
     ['serial', 'Serial'],
   ]);
 
@@ -913,11 +1071,12 @@
     return new Date(when).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   }
 
-  function recent() {
+  /* `after` is the dashboard's period: only changes made after it. */
+  function recent(after = window.register && window.register.recentSince ? window.register.recentSince() : null) {
     const card = $('recent-card');
     if (!LOG || !LOG.entries || !canEdit()) { card.hidden = true; return; }
     card.hidden = false;
-    const rows = LOG.entries.slice(0, 8);
+    const rows = LOG.entries.filter((e) => !after || new Date(e.at) >= after).slice(0, 8);
     const box = $('recent');
     box.replaceChildren();
 
@@ -939,9 +1098,11 @@
       what.className = 'recent-what';
       const subject = document.createElement('strong');
       subject.textContent = entry.name || entry.serial || entry.holder_id || '';
-      what.appendChild(subject);
+      /* A comma, not a dash, and none at all when the change is about the
+         register itself (a word added to a list) rather than a row. */
+      if (subject.textContent) what.append(subject, document.createTextNode(', '));
       what.appendChild(document.createTextNode(
-        ` \u2014 ${fieldLabel(entry)}: ${entry.old_value || '(empty)'} `));
+        `${fieldLabel(entry)}: ${entry.old_value || '(empty)'} `));
       const arrow = document.createElement('span');
       arrow.className = 'arrow';
       arrow.textContent = '\u2192';
@@ -981,18 +1142,46 @@
   }
 
   $('recent-all').addEventListener('click', () => {
-    $('log-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (window.registerTabs) window.registerTabs.show('log');
     $('log-q').focus();
   });
 
   /* ---------- change log ---------- */
 
+  /* The days picked, as the start of the first and the end of the last
+     in this browser's own time zone, so "the 3rd" means the 3rd here. */
+  const localDay = (value, after = 0) => {
+    const [y, m, d] = value.split('-').map(Number);
+    return new Date(y, m - 1, d + after);
+  };
+  function logRange() {
+    const query = new URLSearchParams();
+    if ($('log-from').value) query.set('from', localDay($('log-from').value).toISOString());
+    if ($('log-to').value) query.set('to', localDay($('log-to').value, 1).toISOString());
+    return query;
+  }
+  let LOG_RANGE = null;
+  async function loadRange() {
+    const query = logRange();
+    $('log-clear').hidden = ![...query.keys()].length;
+    if (![...query.keys()].length) { LOG_RANGE = null; logView(); return; }
+    query.set('limit', '5000');
+    try {
+      LOG_RANGE = await api(`/api/audit?${query}`);
+    } catch (error) {
+      LOG_RANGE = { entries: [], total: 0 };
+      $('log-count').textContent = error.message;
+    }
+    logView();
+  }
+
   function logView() {
+    const shown = LOG_RANGE || LOG;
     const q = $('log-q').value.trim().toLowerCase();
     const terms = q ? q.split(/\s+/) : [];
     const match = (e) => terms.every((t) => [e.actor, e.name, e.serial, e.holder_id, e.ticket,
       e.field, e.old_value, e.new_value].join(' ').toLowerCase().includes(t));
-    const list = LOG.entries.filter(match);
+    const list = shown.entries.filter(match);
 
     const body = $('log-body');
     body.replaceChildren();
@@ -1001,7 +1190,8 @@
       const td = document.createElement('td');
       td.colSpan = 7;
       td.className = 'empty';
-      td.textContent = LOG.entries.length ? 'Nothing in the log matches that.' : 'Nothing has been changed yet.';
+      td.textContent = LOG_RANGE ? 'Nothing was changed on those days.'
+        : (LOG.entries.length ? 'Nothing in the log matches that.' : 'Nothing has been changed yet.');
       tr.appendChild(td);
       body.appendChild(tr);
     }
@@ -1022,57 +1212,99 @@
       }
       body.appendChild(tr);
     }
+    const days = LOG_RANGE ? ` on the days picked` : '';
     $('log-count').textContent = terms.length
-      ? `Showing ${nf.format(list.length)} of ${nf.format(LOG.entries.length)} changes.`
-      : `${nf.format(LOG.entries.length)} change${LOG.entries.length === 1 ? '' : 's'}`
-        + (LOG.total > LOG.entries.length ? ` of ${nf.format(LOG.total)} in all, newest first.` : ', newest first.');
-    $('log-note').textContent = 'Every correction anyone makes, with who made it. '
-      + 'A link shows up under the name you gave it.';
+      ? `Showing ${nf.format(list.length)} of ${nf.format(shown.entries.length)} changes${days}.`
+      : `${nf.format(shown.entries.length)} change${shown.entries.length === 1 ? '' : 's'}${days}`
+        + (shown.total > shown.entries.length ? ` of ${nf.format(shown.total)} in all, newest first.` : ', newest first.');
+    $('log-note').textContent = 'Every correction anyone makes, with who made it and the ticket it was '
+      + 'made under. A link shows up under the name you gave it. Nothing in the log can be deleted.';
   }
 
   /* After a merge the log has new lines in it; this pulls them in without
      a reload, and quietly does nothing for a role that cannot see the log. */
-  function refreshLog() {
-    if (!canEdit()) return;
-    api('/api/audit?limit=1000').then((log) => { LOG = log; logView(); recent(); }).catch(() => {});
+  /* Several changes in a row ask once. The data-quality list is the
+     heaviest answer the server gives, so it is asked for only while a tab
+     that shows it is open (Needs attention, and People for its possible
+     duplicates), and otherwise when somebody opens one. */
+  let logTimer = null;
+  let problemsStale = false;
+  const PROBLEM_PANELS = ['panel-attention', 'panel-people'];
+  const attentionOpen = () => PROBLEM_PANELS.some((id) => !$(id).hidden);
+  function loadProblems() {
+    problemsStale = false;
     api('/api/problems').then((found) => { PROBLEMS = found; problems(); }).catch(() => {});
   }
+  function refreshLog() {
+    if (!canEdit()) return;
+    clearTimeout(logTimer);
+    logTimer = setTimeout(() => {
+      api('/api/audit?limit=1000').then((log) => { LOG = log; logView(); recent(); }).catch(() => {});
+      if (LOG_RANGE) loadRange();
+      problemsStale = true;
+      if (attentionOpen()) loadProblems();
+    }, 120);
+  }
+  const whenShown = new MutationObserver(() => { if (problemsStale && attentionOpen()) loadProblems(); });
+  for (const id of PROBLEM_PANELS) whenShown.observe($(id), { attributes: true, attributeFilter: ['hidden'] });
 
   $('log-q').addEventListener('input', logView);
-  $('log-export').addEventListener('click', () => { location.href = '/api/audit.csv'; });
+  for (const id of ['log-from', 'log-to']) $(id).addEventListener('change', loadRange);
+  $('log-clear').addEventListener('click', () => {
+    $('log-from').value = '';
+    $('log-to').value = '';
+    loadRange();
+  });
+  $('log-export').addEventListener('click', () => {
+    const query = logRange();
+    location.href = `/api/audit.csv${[...query.keys()].length ? `?${query}` : ''}`;
+  });
 
   /* ---------- admin panel ---------- */
 
+  /* Anybody who holds nothing, not only somebody typed in here: the
+     workbook is retired, so no import brings a deleted person back. */
   function loadAdded() {
     const box = $('added');
-    if (!box) return;
-    const rows = HOLDERS.filter((row) => row.createdHere);
+    if (!box || session.role !== 'admin') return;
+    const assets = assetsNow();
+    const holds = (row) => (assets ? assets.some((a) => a.holder_id === row.id) : row.n > 0);
+    const q = $('added-q').value.trim().toLowerCase();
+    const free = HOLDERS.filter((row) => !holds(row));
+    const rows = free.filter((row) => !q || row.name.toLowerCase().includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const SHOW_PEOPLE = 40;
+    $('added-line').textContent = `${nf.format(free.length)} ${free.length === 1 ? 'person holds' : 'people hold'} nothing`
+      + (q ? `, ${nf.format(rows.length)} matching.` : '.')
+      + (rows.length > SHOW_PEOPLE ? ` Showing the first ${SHOW_PEOPLE}; type a name to narrow it.` : '');
     box.replaceChildren();
-    if (!rows.length) {
-      const none = document.createElement('p');
-      none.className = 'muted';
-      none.textContent = 'Nobody has been added here.';
-      box.appendChild(none);
-      return;
-    }
-    for (const row of rows) {
+    for (const row of rows.slice(0, SHOW_PEOPLE)) {
       const line = document.createElement('div');
       line.className = 'folded';
       const who = document.createElement('span');
-      who.textContent = `${row.name} \u2014 ${row.n} device${row.n === 1 ? '' : 's'}`;
+      who.textContent = row.name + (row.resigned ? ' · resigned' : '') + (row.createdHere ? ' · added here' : '');
       line.appendChild(who);
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'rowbtn';
-      button.textContent = 'Remove';
+      button.textContent = 'Delete';
+      button.setAttribute('aria-label', `Delete ${row.name}`);
       button.addEventListener('click', async () => {
+        const ticket = await askTicket({
+          title: `Delete ${row.name}`,
+          text: 'They come off the register for good. The change log keeps every line about them, under their name.',
+          go: 'Delete',
+        });
+        if (!ticket) return;
         button.disabled = true;
         try {
-          const out = await api(`/api/holders/${encodeURIComponent(row.id)}`, { method: 'DELETE' });
+          const out = await api(`/api/holders/${encodeURIComponent(row.id)}`, {
+            method: 'DELETE', body: JSON.stringify({ ticket }),
+          });
           HOLDERS = out.holders;
           FLEET = out.fleet;
           draw();
-          say(`${out.removed} removed.`, 'good');
+          say(`${out.removed} deleted. Ticket ${ticket} is on the change log.`, 'good');
           loadAdded();
           refreshLog();
         } catch (error) {
@@ -1133,9 +1365,104 @@
     }
   }
 
+  $('added-q').addEventListener('input', () => loadAdded());
+
+  /* ---------- backups ---------- */
+
+  const WEEK = 7 * 24 * 60 * 60 * 1000;
+  const when = (iso) => new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+
+  /* The last backup, beside the version, for admin and editor links. Red
+     once it is a week old or there is none, which is when it matters. An
+     admin clicks it to get to the Backups card. */
+  function showLastBackup(at) {
+    const stamp = $('last-backup');
+    if (at === undefined || !canEdit()) { stamp.hidden = true; return; }
+    const stale = !at || Date.now() - new Date(at).getTime() > WEEK;
+    stamp.textContent = at ? `Last backup ${when(at)}` : 'No backup yet';
+    stamp.dataset.state = stale ? 'stale' : 'ok';
+    stamp.dataset.role = session.role;
+    stamp.title = session.role === 'admin'
+      ? (stale ? 'Make a backup now, under Settings' : 'Backups, under Settings')
+      : (stale ? 'Ask the IT admin to back up the register' : 'When the register was last backed up');
+    stamp.hidden = false;
+  }
+  $('last-backup').addEventListener('click', () => {
+    if (session.role !== 'admin') return;
+    if (window.registerTabs) window.registerTabs.show('settings');
+    $('backup-card').scrollIntoView({ block: 'start' });
+    $('backup-make').focus();
+  });
+
+  const sizeOf = (bytes) => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+  const SHOW_BACKUPS = 15;
+
+  function drawBackups(listed) {
+    $('backup-folder').textContent = listed.folder || 'the backups folder';
+    const box = $('backup-list');
+    box.replaceChildren();
+    if (!listed.files.length) {
+      const none = document.createElement('p');
+      none.className = 'muted';
+      none.textContent = 'No backups yet.';
+      box.appendChild(none);
+    }
+    for (const backup of listed.files.slice(0, SHOW_BACKUPS)) {
+      const row = document.createElement('div');
+      row.className = 'backup-row';
+      const at = document.createElement('span');
+      at.className = 'when';
+      at.textContent = when(backup.at);
+      const about = document.createElement('span');
+      about.className = 'muted';
+      about.textContent = `${sizeOf(backup.size)}, ${{ import: 'made by the workbook import', auto: 'weekly, made automatically' }[backup.source] || 'made here'}`;
+      const get = document.createElement('a');
+      get.className = 'btn btn-quiet btn-small';
+      get.href = `/api/backups/${encodeURIComponent(backup.file)}`;
+      get.setAttribute('download', backup.file);
+      get.textContent = 'Download';
+      get.setAttribute('aria-label', `Download the backup from ${when(backup.at)}`);
+      row.append(at, about, get);
+      box.appendChild(row);
+    }
+    if (listed.files.length > SHOW_BACKUPS) {
+      const more = document.createElement('p');
+      more.className = 'muted';
+      more.textContent = `${listed.files.length - SHOW_BACKUPS} older ones are in the folder above.`;
+      box.appendChild(more);
+    }
+    showLastBackup(listed.last ? listed.last.at : null);
+  }
+
+  async function loadBackups() {
+    try { drawBackups(await api('/api/backups')); } catch { /* not admin, or the folder is unreadable */ }
+  }
+
+  $('backup-make').addEventListener('click', async () => {
+    const button = $('backup-make');
+    button.disabled = true;
+    const line = $('backup-line');
+    line.removeAttribute('data-state');
+    line.textContent = 'Backing up\u2026';
+    try {
+      const out = await api('/api/backups', { method: 'POST' });
+      drawBackups(out);
+      line.dataset.state = 'good';
+      line.textContent = `Backed up: ${out.made.file}, ${sizeOf(out.made.size)}.`;
+      refreshLog();
+    } catch (error) {
+      line.dataset.state = 'bad';
+      line.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+
   async function loadAdmin() {
     if (session.role !== 'admin') return;
-    $('admin').hidden = false;
+    loadBackups();
+    /* The admin's sections are spread over Access links and Settings. */
+    for (const section of document.querySelectorAll('[data-admin]')) section.hidden = false;
     loadAdded();
     loadFolded();
 
@@ -1170,8 +1497,8 @@
       item.className = 'link-item' + (invite.revoked ? ' is-revoked' : '');
       const left = document.createElement('div');
       const title = document.createElement('div');
-      title.textContent = `${invite.label} — ${invite.role === 'editor' ? 'can correct' : 'can look'}`
-        + (invite.revoked ? ' — withdrawn' : '');
+      title.textContent = `${invite.label}: ${invite.role === 'editor' ? 'can correct' : 'can look'}`
+        + (invite.revoked ? ' (withdrawn)' : '');
       const url = document.createElement('code');
       url.textContent = `${linkBase()}/i/${invite.token}`;
       left.append(title, url);
@@ -1231,6 +1558,52 @@
     }
   });
 
+  /* ---------- the admin password ---------- */
+
+  const pwSay = (msg, state) => {
+    const el = $('pw-line');
+    el.textContent = msg;
+    if (state) el.dataset.state = state; else el.removeAttribute('data-state');
+  };
+
+  $('pw-save').addEventListener('click', async () => {
+    const current = $('pw-current').value;
+    const next = $('pw-next').value;
+    if (!current || !next) { pwSay('Fill in both boxes.', 'bad'); return; }
+    if (next.length < 8) { pwSay('The new password needs at least 8 characters.', 'bad'); return; }
+    /* The settings file cannot hold these as typed -- the reader strips them
+       -- so the password would work now and fail after a restart. */
+    if (next !== next.trim() || /^["']/.test(next) || /["']$/.test(next)) {
+      pwSay('A password cannot begin or end with a space or a quotation mark: it would stop '
+        + 'working the next time the app restarts.', 'bad');
+      return;
+    }
+
+    $('pw-save').disabled = true;
+    pwSay('Changing…');
+    try {
+      const out = await api('/api/password', {
+        method: 'POST',
+        body: JSON.stringify({ current, next }),
+      });
+      $('pw-current').value = '';
+      $('pw-next').value = '';
+      /* Saved means it survived to .env. Not saved means it is live now but
+         goes back to the old one when the app restarts, which somebody needs
+         to know rather than find out later. */
+      pwSay(out.saved
+        ? 'Changed. Every other admin has been signed out; you are still signed in.'
+        : 'Changed for now, but it could not be written to the settings file, so a '
+          + 'restart puts the old one back. Update the environment this app runs with.',
+        out.saved ? 'good' : 'bad');
+      refreshLog();
+    } catch (e) {
+      pwSay(e.message, 'bad');
+    } finally {
+      $('pw-save').disabled = false;
+    }
+  });
+
   /* ---------- wiring ---------- */
 
   for (const chip of document.querySelectorAll('.chip')) {
@@ -1258,7 +1631,9 @@
     try {
       await api('/api/login', {
         method: 'POST',
-        body: JSON.stringify({ password: $('password').value }),
+        /* Everyone shares the one password, so without a name every admin
+           appears in the change log as the same person. */
+        body: JSON.stringify({ password: $('password').value, who: $('who').value }),
       });
       location.reload();
     } catch (err) {
@@ -1275,9 +1650,10 @@
     $('app').hidden = false;
     buildHead();
     if (session.version) $('version').textContent = `v${session.version}`;
+    showLastBackup(session.lastBackup);
     $('whoami').textContent = session.role === 'admin'
       ? 'Signed in as IT admin'
-      : `${session.label} — ${session.role === 'editor' ? 'you can make corrections' : 'you can look only'}`;
+      : `${session.label}: ${session.role === 'editor' ? 'you can make corrections' : 'you can look only'}`;
     if (!canEdit()) say('Your link lets you look, not change.');
     try {
       const [data, sum] = await Promise.all([api('/api/holders'), api('/api/summary')]);
@@ -1303,21 +1679,63 @@
     /* The asset side is its own file. It needs the same session, the same
        way of talking to the server, and a way to say "the holders have
        moved, draw them again" after an assignment. */
+    let lastSeen = null;
     window.register = {
       api,
       session,
       say,
       refreshLog,
       reload: async () => {
-        const data = await api('/api/holders');
+        const [data, changed] = await Promise.all([api('/api/holders'), api('/api/changed').catch(() => null)]);
+        if (changed) lastSeen = changed.last;
         HOLDERS = data.holders;
         FLEET = data.fleet;
         draw();
+        loadAdded();
         refreshLog();
       },
       holders: () => HOLDERS,
       canEdit,
+      askTicket,
+      rememberTicket,
+      lastTicket: () => lastTicket,
+      loadExtras,
+      extras: () => EXTRAS,
+      waiting: () => WAITING,
+      draw: { tiles, mix, fleet, recent },
     };
     window.dispatchEvent(new CustomEvent('register-ready'));
+
+    /* The tags on the people table read the assets, so it is drawn again
+       once they are in, and after each change to them. */
+    window.addEventListener('assets-loaded', () => { table(); loadAdded(); });
+
+    /* Somebody else's change shows without anybody pressing refresh: every
+       half minute, and on coming back to the tab, the page asks whether the
+       change log has moved, a few bytes, and reloads only when it has. Not
+       while somebody is typing into a cell or has a pop-up open. */
+    const busy = () => Boolean(document.querySelector('dialog[open]'))
+      || Boolean(document.activeElement && document.activeElement.closest('#rows, #a-body'));
+    async function checkChanged() {
+      if (document.hidden) return;
+      let out;
+      try { out = await api('/api/changed'); } catch { return; }
+      if (lastSeen === null) { lastSeen = out.last; return; }
+      if (out.last === lastSeen || busy()) return;
+      lastSeen = out.last;
+      try {
+        const [data, sum] = await Promise.all([api('/api/holders'), api('/api/summary')]);
+        HOLDERS = data.holders;
+        FLEET = data.fleet;
+        SUMMARY = sum;
+        draw();
+        loadAdded();
+        refreshLog();
+        window.dispatchEvent(new CustomEvent('assets-changed'));
+      } catch { lastSeen = null; }
+    }
+    checkChanged();
+    setInterval(checkChanged, 30000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) checkChanged(); });
   })();
 })();

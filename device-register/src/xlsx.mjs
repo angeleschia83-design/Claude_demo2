@@ -133,9 +133,17 @@ export function writeWorkbook(sheets) {
   const safe = sheets.map((sheet, index) => {
     /* Excel's rules: 31 characters, none of : \ / ? * [ ], and no two the
        same. */
-    let name = String(sheet.name || `Sheet${index + 1}`).replace(/[:\\/?*[\]]/g, ' ').slice(0, 31).trim()
-      || `Sheet${index + 1}`;
-    while (used.has(name.toLowerCase())) name = `${name.slice(0, 28)} ${index + 1}`;
+    const base = String(sheet.name || `Sheet${index + 1}`).replace(/[:\\/?*[\]]/g, ' ')
+      .slice(0, 31).trim() || `Sheet${index + 1}`;
+    let name = base;
+    /* Counted up from the base each time. Re-slicing the already-suffixed
+       name and appending the same number reproduced it exactly, so two sheet
+       names colliding at 28 characters or more spun here for ever — in a
+       request, on the one thread. */
+    for (let n = 2; used.has(name.toLowerCase()); n += 1) {
+      const tail = ` ${n}`;
+      name = `${base.slice(0, 31 - tail.length).trim()}${tail}`;
+    }
     used.add(name.toLowerCase());
     return { ...sheet, name };
   });

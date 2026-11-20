@@ -1,0 +1,130 @@
+DEVICE REGISTER 5.2.0 -- a small upgrade on top of 5.1.0
+========================================================
+
+This is the next version of the register you already run. It holds no
+database: your register.db, with every correction anybody has made, stays
+exactly where it is on the server, and so does your .env with the admin
+password. Copy this over the top of the old one and start it again.
+
+What is new, in one breath: an asset can carry an INVOICE DATE and a
+PURCHASE DATE, both optional, filled in when you add it or by clicking the
+cell afterwards, and both in the audit export. And one thing is fixed that
+you will want to know about -- see WHAT WAS GOING WRONG below.
+device-register\CHANGELOG.md says it in full.
+
+
+WHAT WAS GOING WRONG
+
+  In 5.1.0, pressing Enter to finish an edit in the ASSETS table saved the
+  new value and then quietly put the old one straight back, while telling
+  you it had saved. Anything corrected that way was lost.
+
+  It did not affect the People table, and it did not affect edits finished
+  by clicking somewhere else instead of pressing Enter. Both values are in
+  the change log, so if you think something was lost this way: Change log,
+  search the serial, and you will see the pair of lines, a second apart,
+  going out and back again.
+
+  Fixed in 5.2.0. Enter saves once, Escape abandons the edit, clicking away
+  still saves.
+
+
+UPGRADING, STEP BY STEP
+
+  1. BACK UP register.db. It is the only copy of every correction.
+     Settings -> Backups -> Back up now does this from the page, and the
+     top bar shows when it was last done. Or stop the app and copy all
+     three files if you see register.db-wal and register.db-shm beside it.
+     Copy the whole old folder somewhere safe too: that is your way back.
+     extras\backup-database.mjs makes a safe copy while it runs:
+     node extras\backup-database.mjs
+
+  2. Stop the register.
+     Right-click STOP-RUNNING-ON-SERVER.bat -> Run as administrator, or end
+     the "Device register" task in Task Scheduler, or close the window if it
+     runs from RUN-ON-WINDOWS.bat.
+
+  3. Copy everything inside this zip's device-register-5.2.0 folder over the
+     folder you run the register from, for example C:\IT Inventory\
+     device-register-5.1.0, and say yes to replacing files.
+     Do not delete the old folder first. The zip has no register.db and no
+     .env, so yours are left as they are.
+
+  4. Nothing to install. The app's one dependency has not changed. If the
+     node_modules folder is missing for any reason, RUN-ON-WINDOWS.bat or
+     "npm install" in device-register puts it back.
+
+  5. Start it again.
+     Right-click KEEP-RUNNING-ON-SERVER.bat -> Run as administrator. Or run
+     the task in Task Scheduler, or double-click RUN-ON-WINDOWS.bat.
+
+  6. Open the register. The top right says v5.2.0. Every browser picks up
+     the new page on its next load; nobody needs to clear anything.
+
+
+ABOUT THE DATABASE
+
+  5.2.0 adds two columns to the devices table the first time it starts:
+  invoice_date and purchased_on, both empty, both allowed to stay empty.
+  Nothing else changes and no data is rewritten.
+
+  Going back to 5.1.0 afterwards works: it reads the same database and
+  simply does not show the two dates. They are still there if you come
+  forward again.
+
+
+THE TWO NEW DATES
+
+  On Assets -> Add an asset there are two more boxes, Invoice date and
+  Purchase date, both marked optional and both calendars. Leave either or
+  both empty.
+
+  On the Assets table they are two more columns. Click one to fill it in or
+  correct it, the same as Host name or Remark. They do not ask for a ticket
+  number.
+
+  Neither date comes from the workbook, so importing a workbook never
+  touches them: what you type stays typed. They are kept as YYYY-MM-DD, so
+  a date can never be read as 3 April in one place and 4 March in another,
+  and Export for audit has both columns.
+
+
+BRINGING IN A CLEANED WORKBOOK
+
+  Unchanged: copy the asset workbook and HR's employee list into this folder
+  and double-click IMPORT-WORKBOOK.bat (not as administrator). It backs up
+  register.db first. Then sign in as admin and go to Import -> From the
+  workbook. It needs Python 3 on the server.
+
+
+RUNNING IT ON A SERVER, NOT A DESKTOP
+
+  KEEP-RUNNING-ON-SERVER.bat keeps it up after you log off, and
+  STOP-RUNNING-ON-SERVER.bat undoes it. KEEPING-IT-RUNNING.md explains it.
+  On a Linux server, device-register\service\ has a systemd unit instead.
+
+  THE FOLDER MUST NOT BE IN ONEDRIVE. A sync caught mid-write can corrupt
+  the register or quietly restore an older copy.
+
+
+WHAT HAS BEEN CHECKED IN THIS VERSION
+
+  Checked, in a browser against a register of made-up assets:
+
+    - Adding an asset with both dates, with one, and with neither.
+    - A date typed as 14/03/2026, as 31 February or as month 13 is refused
+      with a message, and the asset is not added.
+    - Both dates show on the Assets table, can be corrected by clicking the
+      cell, and show in Export for audit with their own columns.
+    - The upgrade path: an existing register.db gains the two columns on
+      first start and loses nothing.
+    - The Enter fix: Enter saves once and the value stays, Escape abandons
+      the edit, clicking away saves. Checked on a text cell and on a date
+      cell, against the change log, not only what the screen showed.
+
+  Everything 5.1.0 was checked for still applies; that list is in the 5.1.0
+  notes and the tests live in the repository this came from, not in this
+  zip.
+
+  Not checked: your server, your data, Task Scheduler, or the Docker route.
+  TESTING-ON-YOUR-SERVER.md is the short list to run after upgrading.

@@ -164,11 +164,19 @@ export function planChanges(parsed, holders, inventory = []) {
   const byId = new Map(holders.map((row) => [row.id, row]));
   /* Matched on the name the workbook gave them as well as the name the
      register shows, because either side may have corrected it since. */
+  /* Every holder under each spelling, not whichever one claimed it first.
+     The defining problem of this register is one person typed two ways, and
+     two different people can genuinely share a name — so a lookup that took
+     the first match could write somebody's correction onto a stranger, and
+     show it as a clean change while doing it. */
   const byName = new Map();
   for (const row of holders) {
     for (const name of [row.name, (row.base || {}).name]) {
       const key = norm(name);
-      if (key && !byName.has(key)) byName.set(key, row);
+      if (!key) continue;
+      const found = byName.get(key);
+      if (!found) byName.set(key, [row]);
+      else if (!found.some((other) => other.id === row.id)) found.push(row);
     }
   }
 
@@ -182,7 +190,10 @@ export function planChanges(parsed, holders, inventory = []) {
 
   for (const entry of parsed.entries) {
     const byTheId = byId.get(entry.id) || null;
-    const byTheName = byName.get(norm(entry.name)) || null;
+    const sharing = byName.get(norm(entry.name)) || [];
+    /* Exactly one holder of that name, or nobody we are entitled to guess. */
+    const byTheName = sharing.length === 1 ? sharing[0] : null;
+    const ambiguous = sharing.length > 1;
     let holder = byTheId || byTheName;
     let mixedUp = false;
 
@@ -215,7 +226,10 @@ export function planChanges(parsed, holders, inventory = []) {
               was: '', becomes: asked, state: 'missing',
               why: mixedUp
                 ? 'Their copy has a different person under this record. Ask them for a fresh copy.'
-                : 'No holder of that name in the register.' });
+                : ambiguous
+                  ? 'More than one holder goes by that name here — fold them together first, '
+                    + 'or say which one this is.'
+                  : 'No holder of that name in the register.' });
         continue;
       }
       if (change.field === 'type' && !TYPES.has(change.value)) {
@@ -320,5 +334,3 @@ export function patchesFor(plan, picked) {
     assets: [...byAsset.entries()].map(([serial, patch]) => ({ serial, patch })),
   };
 }
-
-export const mergeFields = [...LABELS.entries()].map(([key, label]) => ({ key, label }));
